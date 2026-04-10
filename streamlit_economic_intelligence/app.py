@@ -7,6 +7,7 @@ z-score anomaly highlights, economic event context, wide-panel correlation line,
 from __future__ import annotations
 
 import html
+import inspect
 import io
 import difflib
 import json
@@ -539,51 +540,260 @@ st.set_page_config(
 st.markdown(
     """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap');
+:root {
+    --ei-bg0: #e8ecf6;
+    --ei-bg1: #eef1f8;
+    --ei-surface: rgba(255, 255, 255, 0.78);
+    --ei-border: rgba(15, 23, 42, 0.08);
+    --ei-text: #0f172a;
+    --ei-muted: #64748b;
+    --ei-accent: #0d47a1;
+    --ei-teal: #00838f;
+    --ei-shadow: 0 4px 28px rgba(15, 23, 42, 0.07);
+    --ei-shadow-hover: 0 14px 40px rgba(15, 23, 42, 0.11);
+}
+html, body, [class*="css"] {
+    font-family: "Plus Jakarta Sans", "Segoe UI", system-ui, -apple-system, sans-serif !important;
+}
+.stApp {
+    background: radial-gradient(1200px 600px at 10% -10%, rgba(21, 101, 192, 0.09), transparent 55%),
+                radial-gradient(900px 500px at 100% 0%, rgba(0, 131, 143, 0.07), transparent 50%),
+                linear-gradient(168deg, var(--ei-bg0) 0%, var(--ei-bg1) 45%, #e4e9f2 100%) !important;
+    background-attachment: fixed !important;
+}
+section.main > div {
+    max-width: 1280px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+}
+.ei-app-header {
+    margin-bottom: 18px;
+    padding: 20px 22px 18px 22px;
+    border-radius: 20px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.94) 0%, rgba(248,250,252,0.92) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    box-shadow: var(--ei-shadow);
+    position: relative;
+    overflow: hidden;
+}
+.ei-app-header::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #0d47a1, #1565c0, #00838f, #26a69a);
+    opacity: 0.95;
+}
+.ei-app-header-inner { position: relative; z-index: 1; }
 .main-header {
-    font-size: 28px; font-weight: 800;
-    margin-bottom: 4px;
+    font-size: 29px; font-weight: 800;
+    margin-bottom: 6px;
+    letter-spacing: -0.02em;
     background: linear-gradient(120deg, #0d47a1 0%, #1565c0 40%, #00838f 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
 .sub-header {
-    font-size: 14px; color: #5c6b7a;
-    margin-bottom: 20px;
-    line-height: 1.45;
+    font-size: 14px; color: var(--ei-muted);
+    margin-bottom: 0;
+    line-height: 1.55;
+    max-width: 820px;
+}
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--ei-surface) !important;
+    backdrop-filter: blur(18px) saturate(140%) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(140%) !important;
+    border-radius: 18px !important;
+    border: 1px solid rgba(255, 255, 255, 0.85) !important;
+    box-shadow: var(--ei-shadow) !important;
+    margin-bottom: 1rem !important;
+    padding: 6px 4px 10px 4px !important;
+    transition: box-shadow 0.35s ease, border-color 0.35s ease !important;
+}
+div[data-testid="stVerticalBlockBorderWrapper"]:hover {
+    box-shadow: var(--ei-shadow-hover) !important;
+    border-color: rgba(21, 101, 192, 0.12) !important;
+}
+div[data-testid="stMetric"] {
+    background: linear-gradient(145deg, rgba(255,255,255,0.98), rgba(248,250,252,0.95)) !important;
+    border-radius: 14px !important;
+    border: 1px solid var(--ei-border) !important;
+    padding: 12px 14px !important;
+    box-shadow: 0 2px 12px rgba(15, 23, 42, 0.04) !important;
+    transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease !important;
+}
+div[data-testid="stMetric"]:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 28px rgba(21, 101, 192, 0.1) !important;
+    border-color: rgba(21, 101, 192, 0.14) !important;
+}
+div[data-testid="stMetric"] label { color: var(--ei-muted) !important; font-weight: 600 !important; font-size: 11px !important; letter-spacing: 0.06em !important; text-transform: uppercase !important; }
+div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: var(--ei-accent) !important; font-weight: 700 !important; }
+button[kind="primary"] {
+    background: linear-gradient(135deg, #1565c0 0%, #0d47a1 55%, #0a3d7a 100%) !important;
+    border: none !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 16px rgba(13, 71, 161, 0.28) !important;
+    transition: transform 0.18s ease, box-shadow 0.22s ease, filter 0.2s ease !important;
+}
+button[kind="primary"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(13, 71, 161, 0.35) !important;
+    filter: brightness(1.04);
+}
+div[data-testid="stButton"] button:not([kind="primary"]) {
+    border-radius: 10px !important;
+    border: 1px solid rgba(21, 101, 192, 0.18) !important;
+    background: rgba(255,255,255,0.9) !important;
+    font-weight: 600 !important;
+    transition: transform 0.18s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease !important;
+}
+div[data-testid="stButton"] button:not([kind="primary"]):hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(21, 101, 192, 0.12) !important;
+    border-color: rgba(21, 101, 192, 0.35) !important;
+    background: rgba(255,255,255,1) !important;
+}
+div[data-testid="stTabs"] [role="tablist"] button {
+    font-weight: 600 !important;
+    font-size: 13px !important;
+    border-radius: 10px 10px 0 0 !important;
+    transition: color 0.2s ease, background 0.2s ease !important;
+}
+div[data-testid="stTabs"] [role="tablist"] button[aria-selected="true"] {
+    color: var(--ei-accent) !important;
+}
+.stTextInput input {
+    border-radius: 12px !important;
+    border: 1px solid rgba(15, 23, 42, 0.1) !important;
+    padding: 12px 14px !important;
+    font-size: 14px !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+.stTextInput input:focus {
+    border-color: rgba(21, 101, 192, 0.45) !important;
+    box-shadow: 0 0 0 3px rgba(21, 101, 192, 0.12) !important;
+}
+hr {
+    margin: 1.1rem 0 !important;
+    border: none !important;
+    height: 1px !important;
+    background: linear-gradient(90deg, transparent, rgba(15,23,42,0.1), transparent) !important;
+}
+.ei-narrative-card {
+    border-radius: 16px;
+    padding: 16px 18px 18px 18px;
+    margin-bottom: 14px;
+    background: linear-gradient(155deg, rgba(255,255,255,0.97) 0%, rgba(241, 248, 255, 0.92) 100%);
+    border: 1px solid rgba(21, 101, 192, 0.12);
+    box-shadow: 0 6px 28px rgba(13, 71, 161, 0.08);
+    position: relative;
+    overflow: hidden;
+    animation: ei-card-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.ei-narrative-card::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: linear-gradient(180deg, #1565c0, #00838f);
+    border-radius: 4px 0 0 4px;
+}
+.ei-narrative-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+    padding-left: 8px;
+}
+.ei-narrative-kicker {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ei-accent);
+}
+.ei-narrative-badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #fff;
+    background: linear-gradient(135deg, #1565c0, #00838f);
+    padding: 4px 10px;
+    border-radius: 999px;
+    box-shadow: 0 2px 8px rgba(21, 101, 192, 0.25);
+}
+.ei-narrative-body {
+    font-size: 14px;
+    line-height: 1.65;
+    color: #1e293b;
+    padding-left: 8px;
+}
+@keyframes ei-card-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 .user-bubble {
     background: linear-gradient(135deg, #1565c0 0%, #0d47a1 100%);
     color: white;
-    padding: 10px 16px; border-radius: 18px 18px 4px 18px;
-    margin: 8px 0; max-width: 80%; float: right; clear: both;
+    padding: 12px 18px; border-radius: 18px 18px 5px 18px;
+    margin: 10px 0; max-width: 80%; float: right; clear: both;
     font-size: 14px;
-    box-shadow: 0 2px 8px rgba(13, 71, 161, 0.2);
+    line-height: 1.5;
+    box-shadow: 0 4px 18px rgba(13, 71, 161, 0.28);
+    transition: transform 0.2s ease, box-shadow 0.25s ease;
+}
+.user-bubble:hover {
+    transform: translateY(-2px) scale(1.01);
+    box-shadow: 0 8px 28px rgba(13, 71, 161, 0.32);
 }
 .ai-bubble {
-    background: linear-gradient(145deg, #f8fafc 0%, #eef2ff 100%);
+    background: linear-gradient(145deg, #ffffff 0%, #f1f5f9 55%, #eef2ff 100%);
     color: #1a1a2e;
-    padding: 10px 16px; border-radius: 18px 18px 18px 4px;
-    margin: 8px 0; max-width: 85%; float: left; clear: both;
+    padding: 12px 18px; border-radius: 18px 18px 18px 5px;
+    margin: 10px 0; max-width: 85%; float: left; clear: both;
     font-size: 14px;
-    border: 1px solid rgba(21, 101, 192, 0.12);
-    box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+    line-height: 1.5;
+    border: 1px solid rgba(21, 101, 192, 0.11);
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+    transition: transform 0.2s ease, box-shadow 0.25s ease;
+}
+.ai-bubble:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 26px rgba(15, 23, 42, 0.09);
 }
 .sql-box {
-    background: linear-gradient(160deg, #1a1f2e 0%, #252b3d 100%);
-    color: #82c4ff;
-    padding: 12px 16px; border-radius: 10px;
-    font-family: monospace; font-size: 12px;
-    white-space: pre-wrap; overflow-x: auto; margin-top: 8px;
-    border: 1px solid rgba(130, 196, 255, 0.15);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+    background: linear-gradient(165deg, #141a28 0%, #1c2436 45%, #252d42 100%);
+    color: #a8d4ff;
+    padding: 14px 16px; border-radius: 14px;
+    font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap; overflow-x: auto; margin-top: 10px;
+    border: 1px solid rgba(130, 196, 255, 0.2);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 8px 32px rgba(0,0,0,0.2);
+    transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.sql-box:hover {
+    border-color: rgba(130, 196, 255, 0.32);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 36px rgba(0,0,0,0.25);
 }
 .clearfix { clear: both; }
 .section-label {
-    font-size: 11px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.1em;
-    color: #00838f;
-    margin-bottom: 8px;
+    font-size: 10px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--ei-accent);
+    margin-bottom: 10px;
+    padding-left: 12px;
+    border-left: 3px solid var(--ei-teal);
 }
 @keyframes analyst-float-y {
     0%, 100% { transform: translateY(0); }
@@ -746,11 +956,18 @@ st.markdown(
 .welcome-chip {
     font-size: 12px;
     font-weight: 600;
-    padding: 6px 12px;
+    padding: 7px 14px;
     border-radius: 999px;
-    background: rgba(255,255,255,0.85);
-    border: 1px solid rgba(21, 101, 192, 0.15);
+    background: rgba(255,255,255,0.92);
+    border: 1px solid rgba(21, 101, 192, 0.16);
     color: #1565c0;
+    transition: transform 0.2s ease, box-shadow 0.22s ease, border-color 0.2s ease;
+    display: inline-block;
+}
+.welcome-chip:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(21, 101, 192, 0.14);
+    border-color: rgba(21, 101, 192, 0.32);
 }
 @keyframes welcome-back-in {
     from { opacity: 0; transform: translateY(-6px); }
@@ -758,14 +975,15 @@ st.markdown(
 }
 .welcome-back-strip {
     animation: welcome-back-in 0.5s ease-out both;
-    border-radius: 12px;
-    padding: 10px 16px;
+    border-radius: 14px;
+    padding: 12px 18px;
     margin-bottom: 14px;
-    background: linear-gradient(90deg, rgba(0,131,143,0.08), rgba(21,101,192,0.08));
-    border: 1px solid rgba(0, 131, 143, 0.18);
+    background: linear-gradient(95deg, rgba(0,131,143,0.1), rgba(21,101,192,0.09), rgba(255,255,255,0.5));
+    border: 1px solid rgba(0, 131, 143, 0.2);
     font-size: 14px;
     color: #1a365d;
     font-weight: 500;
+    box-shadow: 0 4px 20px rgba(13, 71, 161, 0.06);
 }
 @keyframes chart-reveal-pop {
     0% { opacity: 0; transform: translateY(14px) scale(0.985); filter: blur(2px); }
@@ -781,38 +999,97 @@ div[data-testid="stDataFrame"] {
     animation: chart-reveal-pop 0.55s ease-out both !important;
 }
 .persona-hints {
-    margin: 8px 0 2px 0;
-    padding: 12px 14px;
-    border-radius: 10px;
-    background: linear-gradient(145deg, #fafcfd 0%, #f0f4f8 100%);
-    border: 1px solid rgba(21, 101, 192, 0.12);
+    margin: 6px 0 4px 0;
+    padding: 14px 16px;
+    border-radius: 14px;
+    background: linear-gradient(145deg, rgba(255,255,255,0.95) 0%, #f1f5f9 100%);
+    border: 1px solid rgba(21, 101, 192, 0.1);
     font-size: 13px;
     line-height: 1.5;
-    color: #4a5568;
+    color: #475569;
+    box-shadow: 0 2px 14px rgba(15, 23, 42, 0.04);
 }
 .persona-hint-row {
     display: flex;
     gap: 10px;
     align-items: baseline;
-    margin: 4px 0;
-    padding: 6px 8px;
-    border-radius: 6px;
+    margin: 2px 0;
+    padding: 8px 10px;
+    border-radius: 10px;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.18s ease;
+    border: 1px solid transparent;
+}
+.persona-hint-row:hover {
+    background: rgba(255,255,255,0.75);
+    border-color: rgba(21, 101, 192, 0.1);
 }
 .persona-hint-row + .persona-hint-row {
     margin-top: 2px;
 }
 .persona-hint-active {
-    background: rgba(21, 101, 192, 0.08);
-    border: 1px solid rgba(21, 101, 192, 0.14);
+    background: linear-gradient(90deg, rgba(21, 101, 192, 0.1), rgba(0, 131, 143, 0.06)) !important;
+    border: 1px solid rgba(21, 101, 192, 0.2) !important;
+    box-shadow: 0 2px 12px rgba(21, 101, 192, 0.08);
 }
 .persona-hint-name {
     flex: 0 0 92px;
-    font-weight: 700;
+    font-weight: 800;
     color: #0d47a1;
-    font-size: 12px;
-    letter-spacing: 0.02em;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
 }
 .persona-hint-text { flex: 1; min-width: 0; }
+.ei-empty-state {
+    text-align: center;
+    padding: 48px 24px 52px 24px;
+    color: #64748b;
+    background: linear-gradient(165deg, rgba(255,255,255,0.92) 0%, #f1f5f9 55%, #e8eef7 100%);
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.95);
+    box-shadow: 0 8px 36px rgba(15, 23, 42, 0.07);
+    animation: ei-empty-in 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.ei-empty-state .ei-empty-icon {
+    font-size: 48px;
+    margin-bottom: 14px;
+    line-height: 1;
+    filter: drop-shadow(0 4px 12px rgba(21, 101, 192, 0.15));
+}
+.ei-empty-state .ei-empty-title {
+    font-size: 18px;
+    font-weight: 800;
+    margin-bottom: 10px;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+}
+.ei-empty-state .ei-empty-copy {
+    font-size: 13px;
+    line-height: 1.6;
+    max-width: 360px;
+    margin: 0 auto;
+}
+details summary {
+    font-weight: 600 !important;
+    color: var(--ei-accent) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+    .welcome-hero-shell, .welcome-chip, .welcome-back-strip,
+    .analyst-loading-wrap .analyst-loading-card, .analyst-orb, .analyst-dots span, .analyst-hint,
+    .ei-narrative-card, .ei-empty-state, .user-bubble, .ai-bubble,
+    div[data-testid="stVegaLiteChart"], div[data-testid="stArrowVegaLiteChart"],
+    div[data-testid*="VegaLiteChart"], div[data-testid="stDataFrame"] {
+        animation: none !important;
+    }
+    .user-bubble, .ai-bubble, .welcome-chip, div[data-testid="stMetric"],
+    button[kind="primary"], div[data-testid="stButton"] button, .sql-box, .persona-hint-row {
+        transition: none !important;
+    }
+}
+@keyframes ei-empty-in {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -830,6 +1107,19 @@ def _render_persona_hints(selected: str) -> None:
         )
     parts.append("</div>")
     st.markdown("".join(parts), unsafe_allow_html=True)
+
+
+def _render_narrative_card(text: str) -> None:
+    """LLM summary with product-style framing (not default st.info)."""
+    safe = html.escape(text.strip()).replace("\n", "<br/>")
+    st.markdown(
+        '<div class="ei-narrative-card">'
+        '<div class="ei-narrative-head">'
+        '<span class="ei-narrative-kicker">Narrative</span>'
+        '<span class="ei-narrative-badge">Cortex COMPLETE</span></div>'
+        f'<div class="ei-narrative-body">{safe}</div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _connection_auth():
@@ -1183,6 +1473,13 @@ if "welcome_hero_dismissed" not in st.session_state:
 if "last_user_question" not in st.session_state:
     st.session_state.last_user_question = ""
 
+def _glass_panel():
+    """Frosted panel wrapper; uses container(border=…) when the runtime supports it."""
+    if "border" in inspect.signature(st.container).parameters:
+        return st.container(border=True)
+    return st.container()
+
+
 # ══════════════════════════════════════════════════════════════════════════
 #  LAYOUT
 # ══════════════════════════════════════════════════════════════════════════
@@ -1192,162 +1489,163 @@ if session is None:
     st.stop()
 
 st.markdown(
-    '<div class="main-header">US Economic Intelligence</div>',
-    unsafe_allow_html=True,
-)
-st.markdown(
-    '<div class="sub-header">Natural language over unemployment, retail, rates, industrial production, '
-    "<strong>CPI</strong>, <strong>GDP</strong>, the <strong>macro wide</strong> join panel, and corporate "
-    "ownership — Cortex Analyst + verified SQL fallbacks.</div>",
+    """
+<div class="ei-app-header">
+  <div class="ei-app-header-inner">
+    <div class="main-header">US Economic Intelligence</div>
+    <div class="sub-header">Natural language over unemployment, retail, rates, industrial production,
+    <strong>CPI</strong>, <strong>GDP</strong>, the <strong>macro wide</strong> join panel, and corporate
+    ownership — Cortex Analyst + verified SQL fallbacks.</div>
+  </div>
+</div>
+""",
     unsafe_allow_html=True,
 )
 
 _render_welcome_hero()
 _render_welcome_back_strip()
 
-m1, m2, m3, m4 = st.columns(4)
-with m1:
-    st.metric("Logical tables", "8 domains", help="Granular V_* + macro_wide + company graph")
-with m2:
-    st.metric("Join panel", "ECONOMIC_INDICATORS_WIDE", help="Shared timeline for multi-metric compares")
-with m3:
-    st.metric("Prices & output", "CPI + GDP views", help="V_CPI monthly, V_GDP quarterly")
-with m4:
-    st.metric("Company graph", "Parent → subsidiary", help="V_COMPANY_RELATIONSHIPS")
+with _glass_panel():
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.metric("Logical tables", "8 domains", help="Granular V_* + macro_wide + company graph")
+    with m2:
+        st.metric("Join panel", "ECONOMIC_INDICATORS_WIDE", help="Shared timeline for multi-metric compares")
+    with m3:
+        st.metric("Prices & output", "CPI + GDP views", help="V_CPI monthly, V_GDP quarterly")
+    with m4:
+        st.metric("Company graph", "Parent → subsidiary", help="V_COMPANY_RELATIONSHIPS")
 
-st.radio(
-    "Narrative perspective",
-    list(PERSONAS.keys()),
-    horizontal=True,
-    key="persona_perspective",
-    help="Cortex COMPLETE uses a different voice per persona. Descriptions are shown in the panel directly below.",
-)
-_render_persona_hints(st.session_state.get("persona_perspective") or list(PERSONAS.keys())[0])
+with _glass_panel():
+    st.radio(
+        "Narrative perspective",
+        list(PERSONAS.keys()),
+        horizontal=True,
+        key="persona_perspective",
+        help="Cortex COMPLETE uses a different voice per persona. Descriptions are shown in the panel directly below.",
+    )
+    _render_persona_hints(st.session_state.get("persona_perspective") or list(PERSONAS.keys())[0])
 
 st.divider()
 
 query_progress = st.empty()
 
-left, right = st.columns([1, 1], gap="large")
+with _glass_panel():
+    left, right = st.columns([1, 1], gap="large")
 
-with left:
-    st.markdown(
-        '<div class="section-label">Ask a question</div>',
-        unsafe_allow_html=True,
-    )
-    chat_container = st.container(height=380)
-    with chat_container:
-        for msg in st.session_state.messages:
-            if msg["role"] == "user":
-                st.markdown(
-                    f'<div class="user-bubble">{html.escape(msg["content"])}</div>'
-                    '<div class="clearfix"></div>',
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    f'<div class="ai-bubble">{html.escape(msg["content"])}</div>'
-                    '<div class="clearfix"></div>',
-                    unsafe_allow_html=True,
-                )
-
-    with st.form("chat_form", clear_on_submit=True):
-        user_input = st.text_input(
-            "Your question",
-            placeholder="e.g. How did unemployment change in 2020?",
-            label_visibility="collapsed",
-        )
-        submitted = st.form_submit_button("Ask →", use_container_width=True)
-
-    st.markdown(
-        '<div class="section-label" style="margin-top:12px">Suggested questions</div>',
-        unsafe_allow_html=True,
-    )
-    tab_core, tab_pg, tab_wide, tab_co = st.tabs(
-        ["Core macro", "CPI & GDP", "Multi-metric (wide)", "Companies"]
-    )
-    with tab_core:
-        _render_suggestion_chips(SUGGESTED_CORE, "sug_core")
-    with tab_pg:
-        _render_suggestion_chips(SUGGESTED_PRICES_GDP, "sug_pg")
-    with tab_wide:
-        _render_suggestion_chips(SUGGESTED_MACRO_WIDE, "sug_wide")
-    with tab_co:
-        _render_suggestion_chips(SUGGESTED_COMPANIES, "sug_co")
-
-    if st.session_state.last_followups:
+    with left:
         st.markdown(
-            '<div class="section-label" style="margin-top:12px">Follow-up questions</div>',
+            '<div class="section-label">Ask a question</div>',
             unsafe_allow_html=True,
         )
-        fcols = st.columns(1)
-        for i, fq in enumerate(st.session_state.last_followups):
-            if fcols[0].button(fq, key=f"fu_{i}", use_container_width=True):
-                st.session_state.pending_question = fq
-                st.rerun()
+        chat_container = st.container(height=380)
+        with chat_container:
+            for msg in st.session_state.messages:
+                if msg["role"] == "user":
+                    st.markdown(
+                        f'<div class="user-bubble">{html.escape(msg["content"])}</div>'
+                        '<div class="clearfix"></div>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f'<div class="ai-bubble">{html.escape(msg["content"])}</div>'
+                        '<div class="clearfix"></div>',
+                        unsafe_allow_html=True,
+                    )
 
-with right:
-    st.markdown(
-        '<div class="section-label">Results</div>',
-        unsafe_allow_html=True,
-    )
-    if st.session_state.last_df is not None:
-        with st.container():
-            if st.session_state.last_interpretation:
-                st.info(st.session_state.last_interpretation)
-            _ldf = st.session_state.last_df
-            _dc, _vc = _time_series_cols(_ldf)
-            if _dc and _vc:
-                _ci = _correlation_insight_line(_ldf, _dc, _vc)
-                if _ci:
-                    st.markdown(_ci)
-            render_chart(_ldf)
-            with st.expander("View raw data table"):
-                st.dataframe(_ldf, use_container_width=True)
-            if st.session_state.last_sql:
-                st.markdown(
-                    '<div class="section-label" style="margin-top:12px">'
-                    "Generated SQL — transparency panel</div>",
-                    unsafe_allow_html=True,
-                )
-                safe_sql = html.escape(st.session_state.last_sql)
-                st.markdown(
-                    f'<div class="sql-box">{safe_sql}</div>',
-                    unsafe_allow_html=True,
-                )
-            _pdf = build_brief_pdf_bytes(
-                st.session_state.last_user_question or "US Economic Intelligence — analyst brief",
-                st.session_state.last_interpretation or "",
-                st.session_state.last_sql or "",
-                _ldf,
+        with st.form("chat_form", clear_on_submit=True):
+            user_input = st.text_input(
+                "Your question",
+                placeholder="e.g. How did unemployment change in 2020?",
+                label_visibility="collapsed",
             )
-            if _pdf:
-                st.download_button(
-                    label="Export boardroom brief (PDF)",
-                    data=_pdf,
-                    file_name=f"economic_brief_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                    mime="application/pdf",
-                    key="download_brief_pdf",
-                )
-    else:
+            submitted = st.form_submit_button("Ask →", use_container_width=True)
+
         st.markdown(
-            """
-<div style="text-align:center; padding:52px 20px; color:#5c6b7a;
-  background:linear-gradient(180deg,#fafbfd 0%,#f0f4fa 100%);
-  border-radius:12px; border:1px solid rgba(0,131,143,0.12);
-  box-shadow:0 4px 20px rgba(13,71,161,0.06);">
-<div style="font-size:44px; margin-bottom:12px">📈</div>
-<div style="font-size:17px; font-weight:600; margin-bottom:10px; color:#1a1a2e">
-                    Ask a question to get started
-</div>
-<div style="font-size:13px; line-height:1.5; max-width:340px; margin:0 auto;">
-                    Try <strong>CPI &amp; GDP</strong> or <strong>Multi-metric (wide)</strong> tabs for the newest
-                    semantic tables, or type your own.
-</div>
-</div>
-            """,
+            '<div class="section-label" style="margin-top:12px">Suggested questions</div>',
             unsafe_allow_html=True,
         )
+        tab_core, tab_pg, tab_wide, tab_co = st.tabs(
+            ["Core macro", "CPI & GDP", "Multi-metric (wide)", "Companies"]
+        )
+        with tab_core:
+            _render_suggestion_chips(SUGGESTED_CORE, "sug_core")
+        with tab_pg:
+            _render_suggestion_chips(SUGGESTED_PRICES_GDP, "sug_pg")
+        with tab_wide:
+            _render_suggestion_chips(SUGGESTED_MACRO_WIDE, "sug_wide")
+        with tab_co:
+            _render_suggestion_chips(SUGGESTED_COMPANIES, "sug_co")
+
+        if st.session_state.last_followups:
+            st.markdown(
+                '<div class="section-label" style="margin-top:12px">Follow-up questions</div>',
+                unsafe_allow_html=True,
+            )
+            fcols = st.columns(1)
+            for i, fq in enumerate(st.session_state.last_followups):
+                if fcols[0].button(fq, key=f"fu_{i}", use_container_width=True):
+                    st.session_state.pending_question = fq
+                    st.rerun()
+
+    with right:
+        st.markdown(
+            '<div class="section-label">Results</div>',
+            unsafe_allow_html=True,
+        )
+        if st.session_state.last_df is not None:
+            with st.container():
+                if st.session_state.last_interpretation:
+                    _render_narrative_card(st.session_state.last_interpretation)
+                _ldf = st.session_state.last_df
+                _dc, _vc = _time_series_cols(_ldf)
+                if _dc and _vc:
+                    _ci = _correlation_insight_line(_ldf, _dc, _vc)
+                    if _ci:
+                        st.markdown(_ci)
+                render_chart(_ldf)
+                with st.expander("View raw data table"):
+                    st.dataframe(_ldf, use_container_width=True)
+                if st.session_state.last_sql:
+                    st.markdown(
+                        '<div class="section-label" style="margin-top:12px">'
+                        "Generated SQL — transparency panel</div>",
+                        unsafe_allow_html=True,
+                    )
+                    safe_sql = html.escape(st.session_state.last_sql)
+                    st.markdown(
+                        f'<div class="sql-box">{safe_sql}</div>',
+                        unsafe_allow_html=True,
+                    )
+                _pdf = build_brief_pdf_bytes(
+                    st.session_state.last_user_question or "US Economic Intelligence — analyst brief",
+                    st.session_state.last_interpretation or "",
+                    st.session_state.last_sql or "",
+                    _ldf,
+                )
+                if _pdf:
+                    st.download_button(
+                        label="Export boardroom brief (PDF)",
+                        data=_pdf,
+                        file_name=f"economic_brief_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                        mime="application/pdf",
+                        key="download_brief_pdf",
+                    )
+        else:
+            st.markdown(
+                """
+<div class="ei-empty-state">
+  <div class="ei-empty-icon" aria-hidden="true">📈</div>
+  <div class="ei-empty-title">Ask a question to get started</div>
+  <div class="ei-empty-copy">
+    Try <strong>CPI &amp; GDP</strong> or <strong>Multi-metric (wide)</strong> for multi-series joins,
+    or type your own. Results, charts, and SQL transparency appear here.
+  </div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
 
 # ══════════════════════════════════════════════════════════════════════════
 #  PROCESS QUESTION
