@@ -557,6 +557,34 @@ tables:
           - subsidiaries
 
 verified_queries:
+  - question: "What was the peak unemployment rate during COVID?"
+    sql: |
+      SELECT MAX(UNEMPLOYMENT_RATE) AS peak_unemployment_pct
+      FROM HACKATHON.DATA.V_UNEMPLOYMENT
+      WHERE "DATE" BETWEEN '2020-01-01' AND '2021-06-30'
+        AND VARIABLE_NAME LIKE '%Unemployment Rate%'
+        AND VARIABLE_NAME NOT LIKE '%yrs%'
+        AND VARIABLE_NAME NOT LIKE '%, Men%'
+        AND VARIABLE_NAME NOT LIKE '%, Women%'
+
+  - question: "When did inflation peak in 2022?"
+    sql: |
+      SELECT "DATE" AS peak_month, CPI_INDEX AS peak_cpi_index
+      FROM HACKATHON.DATA.V_CPI
+      WHERE "DATE" BETWEEN '2022-01-01' AND '2022-12-31'
+      ORDER BY CPI_INDEX DESC NULLS LAST
+      LIMIT 1
+
+  - question: "Show the Fed rate hike cycle from 2022 through 2024."
+    sql: |
+      SELECT "DATE", AVG(INTEREST_RATE) AS avg_rate
+      FROM HACKATHON.DATA.V_INTEREST_RATES
+      WHERE "DATE" BETWEEN '2022-01-01' AND '2024-12-31'
+        AND VARIABLE_NAME ILIKE '%Treasury bill%'
+        AND VARIABLE_NAME ILIKE '%Monthly%'
+      GROUP BY "DATE"
+      ORDER BY "DATE"
+
   - question: "What is the US unemployment rate trend from 2020 to 2024?"
     sql: |
       SELECT "DATE", AVG(UNEMPLOYMENT_RATE) AS unemployment_rate

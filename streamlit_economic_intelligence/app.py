@@ -1,11 +1,13 @@
 """
 US Economic Intelligence — Streamlit in Snowflake
-Cortex Analyst (semantic YAML) + Cortex COMPLETE narratives. No Plotly (native Streamlit charts).
+Cortex Analyst (semantic YAML) + Cortex COMPLETE narratives (persona modes), native charts,
+z-score anomaly highlights, economic event context, wide-panel correlation line, PDF brief export.
 """
 
 from __future__ import annotations
 
 import html
+import io
 import difflib
 import json
 import os
@@ -32,6 +34,34 @@ SEMANTIC_MODEL_FILE = os.environ.get(
 )
 CORTEX_COMPLETE_MODEL = os.environ.get("CORTEX_COMPLETE_MODEL", "mistral-large2")
 CORTEX_ANALYST_PATH = "/api/v2/cortex/analyst/message"
+
+PERSONAS: dict[str, str] = {
+    "Executive": (
+        "You are a Chief Economist briefing the board: be concise, plain language, "
+        "business implications first, no jargon unless necessary."
+    ),
+    "Analyst": (
+        "You are a quantitative economist: cite specific numbers and ranges, note trends "
+        "and volatility, stay technical and precise."
+    ),
+    "Press": (
+        "You are a financial journalist: open with a punchy lede; at most two short sentences; "
+        "headline-worthy and readable."
+    ),
+}
+
+# Notable dates overlapping typical macro series (YYYY-MM-DD).
+ECONOMIC_EVENTS: tuple[tuple[str, str], ...] = (
+    ("2020-03-15", "COVID shock — emergency policy / market stress"),
+    ("2020-04-01", "Labor market collapse — unemployment spike"),
+    ("2021-06-16", "Fed taper / tightening signal"),
+    ("2022-03-16", "Fed hike cycle begins"),
+    ("2022-06-01", "Headline CPI pressure — multi-decade highs"),
+    ("2022-09-01", "Global tightening / dollar strength"),
+    ("2023-03-10", "Regional bank stress (SVB)"),
+    ("2023-07-26", "Policy rate held in restrictive band"),
+    ("2024-09-18", "Easing expectations build"),
+)
 
 # Verified SQL when Analyst returns a broken CTE (parent column dropped from scope).
 SQL_FALLBACK_MOST_SUBSIDIARIES = """
@@ -797,25 +827,170 @@ def run_sql(sql: str) -> pd.DataFrame:
         return pd.DataFrame({"Error": [str(e)]})
 
 
-def generate_narrative(question: str, df: pd.DataFrame) -> str:
+def _time_series_cols(df: pd.DataFrame) -> tuple[str | None, str | None]:
+    if df.empty or "Error" in df.columns:
+        return None, None
+    cols = df.columns.tolist()
+    date_col = next(
+        (
+            c
+            for c in cols
+            if "date" in c.lower()
+            or c.lower() in ("month", "observation_date", "observation_month")
+        ),
+        None,
+    )
+    num_cols = [c for c in df.select_dtypes(include="number").columns if c != date_col]
+    if date_col and num_cols:
+        return date_col, num_cols[0]
+    return None, None
+
+
+def _events_in_series_range(dmin: pd.Timestamp, dmax: pd.Timestamp) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for ds, label in ECONOMIC_EVENTS:
+        t = pd.Timestamp(ds)
+        if dmin <= t <= dmax:
+            out.append((ds, label))
+    return out
+
+
+def _zscore_anomaly_rows(df: pd.DataFrame, date_col: str, value_col: str, z_thr: float = 3.0) -> pd.DataFrame:
+    try:
+        s = pd.to_numeric(df[value_col], errors="coerce").dropna()
+        if len(s) < 5:
+            return pd.DataFrame()
+        mu, sig = float(s.mean()), float(s.std())
+        if sig == 0 or pd.isna(sig):
+            return pd.DataFrame()
+        work = df[[date_col, value_col]].copy()
+        work["_v"] = pd.to_numeric(work[value_col], errors="coerce")
+        work["_z"] = (work["_v"] - mu) / sig
+        work = work[work["_z"].abs() >= z_thr].dropna(subset=["_v"])
+        work = work.rename(columns={"_z": "z_score"})
+        return work[[date_col, value_col, "z_score"]].sort_values(date_col)
+    except Exception:  # noqa: BLE001
+        return pd.DataFrame()
+
+
+def _correlation_insight_line(df: pd.DataFrame, date_col: str, primary_numeric: str) -> str:
+    if session is None or df.empty or "Error" in df.columns:
+        return ""
+    try:
+        dts = pd.to_datetime(df[date_col], errors="coerce")
+        d0, d1 = dts.min(), dts.max()
+        if pd.isna(d0) or pd.isna(d1):
+            return ""
+        d0s = pd.Timestamp(d0).strftime("%Y-%m-%d")
+        d1s = pd.Timestamp(d1).strftime("%Y-%m-%d")
+        wide = run_sql(
+            f"SELECT * FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE "
+            f"WHERE OBSERVATION_DATE BETWEEN '{d0s}' AND '{d1s}'"
+        )
+        if wide.empty or "Error" in wide.columns:
+            return ""
+        num = wide.select_dtypes(include="number").columns.tolist()
+        if not num or len(num) < 2:
+            return ""
+        # Match primary column case-insensitively to wide columns
+        primary_upper = primary_numeric.upper()
+        match = next((c for c in num if c.upper() == primary_upper), None)
+        if match is None:
+            match = num[0]
+        if match not in wide.columns:
+            return ""
+        sub = wide[["OBSERVATION_DATE"] + num].copy()
+        sub["OBSERVATION_DATE"] = pd.to_datetime(sub["OBSERVATION_DATE"], errors="coerce")
+        sub = sub.dropna(subset=["OBSERVATION_DATE"]).sort_values("OBSERVATION_DATE")
+        corr = sub[num].corr(numeric_only=True)
+        if match not in corr.columns:
+            return ""
+        series = corr[match].drop(labels=[match], errors="ignore").abs().sort_values(ascending=False)
+        if series.empty:
+            return ""
+        top_name = str(series.index[0])
+        top_r = float(series.iloc[0])
+        if pd.isna(top_r):
+            return ""
+        return (
+            f"Cross-indicator note: **{match.replace('_', ' ')}** aligns most closely with "
+            f"**{top_name.replace('_', ' ')}** on this date range (|r| ≈ {top_r:.2f}) using the macro wide panel."
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def build_brief_pdf_bytes(title: str, narrative: str, sql_text: str, df: pd.DataFrame) -> bytes | None:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    except ImportError:
+        return None
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, title=title[:40])
+    styles = getSampleStyleSheet()
+    story: list[Any] = []
+    story.append(Paragraph(html.escape(title), styles["Title"]))
+    story.append(
+        Paragraph(
+            f"<i>Powered by Snowflake Cortex Analyst — {datetime.now().strftime('%Y-%m-%d %H:%M')}</i>",
+            styles["Normal"],
+        )
+    )
+    story.append(Spacer(1, 12))
+    story.append(Paragraph("<b>Executive summary</b>", styles["Heading2"]))
+    story.append(Paragraph(html.escape(narrative or "(none)"), styles["BodyText"]))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph("<b>SQL (transparency)</b>", styles["Heading2"]))
+    story.append(
+        Paragraph(
+            f"<font face='Courier'>{html.escape((sql_text or '—')[:8000])}</font>",
+            styles["BodyText"],
+        )
+    )
+    story.append(Spacer(1, 12))
+    story.append(Paragraph("<b>Data preview (first rows)</b>", styles["Heading2"]))
+    prev = df.head(12)
+    if prev.empty:
+        story.append(Paragraph("(empty)", styles["Normal"]))
+    else:
+        data = [list(prev.columns)] + [[html.escape(str(x))[:80] for x in row] for row in prev.values.tolist()]
+        t = Table(data, repeatRows=1)
+        t.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1565c0")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ]
+            )
+        )
+        story.append(t)
+    doc.build(story)
+    return buf.getvalue()
+
+
+def generate_narrative(question: str, df: pd.DataFrame, persona: str = "Executive") -> str:
     if df.empty or "Error" in df.columns or session is None:
         return ""
-    # Format top results for the prompt
-    summary = df.head(8).to_string(index=False)
-    prompt = f"""You are a senior business intelligence analyst presenting findings to an executive.
+    persona_key = persona if persona in PERSONAS else "Executive"
+    voice = PERSONAS[persona_key]
+    summary = df.head(10).to_string(index=False)
+    prompt = f"""{voice}
 
-A user asked: "{question}"
+User question: "{question}"
 
-The data shows:
+Data (sample rows):
 {summary}
 
-Write 2-3 sentences summarizing the key insight from this data.
-Be specific — mention the top result and actual numbers.
-Start directly with the insight, not with "The data shows" or "Based on the results".
-Plain prose only, no bullet points."""
+Write the response for this persona. Be specific with numbers from the data.
+Do not start with "The data shows" or "Based on the results".
+Plain prose, no bullet points unless Press mode needs a very short second sentence."""
 
     try:
-        # Use dollar-quoted string to avoid escaping issues
         result = session.sql(
             "SELECT SNOWFLAKE.CORTEX.COMPLETE('"
             + CORTEX_COMPLETE_MODEL
@@ -852,6 +1027,26 @@ def render_chart(df: pd.DataFrame) -> None:
             plot_df[date_col] = pd.to_datetime(plot_df[date_col], errors="coerce")
             plot_df = plot_df.sort_values(date_col).set_index(date_col)
             st.line_chart(plot_df, use_container_width=True)
+            dcol, vcol = date_col, num_cols[0]
+            plot_df_reset = plot_df.reset_index()
+            anomalies = _zscore_anomaly_rows(plot_df_reset, dcol, vcol)
+            if not anomalies.empty:
+                with st.expander("Statistical outliers (≈3σ on primary series)", expanded=False):
+                    st.caption("Z-score screening on the first numeric series — highlights extreme points vs period mean.")
+                    st.dataframe(anomalies, use_container_width=True)
+                    try:
+                        sc = anomalies.rename(columns={dcol: "date", vcol: "value"})
+                        st.scatter_chart(sc, x="date", y="value", use_container_width=True)
+                    except Exception:  # noqa: BLE001
+                        pass
+            dts = pd.to_datetime(df[date_col], errors="coerce")
+            dmin, dmax = dts.min(), dts.max()
+            if not pd.isna(dmin) and not pd.isna(dmax):
+                evs = _events_in_series_range(pd.Timestamp(dmin), pd.Timestamp(dmax))
+                if evs:
+                    with st.expander("Economic context — events in this window", expanded=False):
+                        for ds, lab in evs:
+                            st.markdown(f"- **{ds}** — {lab}")
             return
         except Exception:  # noqa: BLE001
             pass
@@ -919,6 +1114,8 @@ if "last_followups" not in st.session_state:
     st.session_state.last_followups = []
 if "welcome_hero_dismissed" not in st.session_state:
     st.session_state.welcome_hero_dismissed = False
+if "last_user_question" not in st.session_state:
+    st.session_state.last_user_question = ""
 
 # ══════════════════════════════════════════════════════════════════════════
 #  LAYOUT
@@ -951,6 +1148,14 @@ with m3:
     st.metric("Prices & output", "CPI + GDP views", help="V_CPI monthly, V_GDP quarterly")
 with m4:
     st.metric("Company graph", "Parent → subsidiary", help="V_COMPANY_RELATIONSHIPS")
+
+st.radio(
+    "Narrative perspective",
+    list(PERSONAS.keys()),
+    horizontal=True,
+    key="persona_perspective",
+    help="Alters Cortex COMPLETE tone (Executive / Analyst / Press) for summaries.",
+)
 
 st.divider()
 
@@ -1023,9 +1228,15 @@ with right:
         with st.container():
             if st.session_state.last_interpretation:
                 st.info(st.session_state.last_interpretation)
-            render_chart(st.session_state.last_df)
+            _ldf = st.session_state.last_df
+            _dc, _vc = _time_series_cols(_ldf)
+            if _dc and _vc:
+                _ci = _correlation_insight_line(_ldf, _dc, _vc)
+                if _ci:
+                    st.markdown(_ci)
+            render_chart(_ldf)
             with st.expander("View raw data table"):
-                st.dataframe(st.session_state.last_df, use_container_width=True)
+                st.dataframe(_ldf, use_container_width=True)
             if st.session_state.last_sql:
                 st.markdown(
                     '<div class="section-label" style="margin-top:12px">'
@@ -1036,6 +1247,20 @@ with right:
                 st.markdown(
                     f'<div class="sql-box">{safe_sql}</div>',
                     unsafe_allow_html=True,
+                )
+            _pdf = build_brief_pdf_bytes(
+                st.session_state.last_user_question or "US Economic Intelligence — analyst brief",
+                st.session_state.last_interpretation or "",
+                st.session_state.last_sql or "",
+                _ldf,
+            )
+            if _pdf:
+                st.download_button(
+                    label="Export boardroom brief (PDF)",
+                    data=_pdf,
+                    file_name=f"economic_brief_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    mime="application/pdf",
+                    key="download_brief_pdf",
                 )
     else:
         st.markdown(
@@ -1070,6 +1295,7 @@ elif submitted and user_input and user_input.strip():
 
 if question:
     question_for_model = _autocorrect_question(question)
+    st.session_state.last_user_question = question
     st.session_state.messages.append({"role": "user", "content": question})
 
     hint = _loading_hint_for_turn()
@@ -1117,7 +1343,11 @@ if question:
                     st.session_state.last_sql = sql
                     st.session_state.last_df = df
                     _progress_step("Drafting an executive summary with Cortex COMPLETE…")
-                    narrative = generate_narrative(question_for_model, df)
+                    narrative = generate_narrative(
+                        question_for_model,
+                        df,
+                        st.session_state.get("persona_perspective") or "Executive",
+                    )
                     digest = _result_digest(df)
                     if narrative:
                         st.session_state.last_interpretation = narrative
@@ -1153,7 +1383,11 @@ if question:
                         )
                         st.session_state.last_df = df
                         _progress_step("Summarizing fallback results…")
-                        narrative = generate_narrative(question, df)
+                        narrative = generate_narrative(
+                            question,
+                            df,
+                            st.session_state.get("persona_perspective") or "Executive",
+                        )
                         digest = _result_digest(df)
                         st.session_state.last_interpretation = narrative or interpretation
                         _progress_step("Generating smart follow-up suggestions…")

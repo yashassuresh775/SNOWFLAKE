@@ -58,6 +58,7 @@ streamlit>=1.31.0
 pandas>=2.0.0
 requests>=2.31.0
 snowflake-snowpark-python>=1.11.0
+reportlab>=4.0.0
 ```
 
 (Same as `requirements.txt` — **no Plotly**; charts use native `st.line_chart` / `st.bar_chart`.)
