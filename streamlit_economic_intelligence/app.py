@@ -8,6 +8,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 import uuid
 from typing import Any
 
@@ -103,6 +104,66 @@ GROUP BY 1
 ORDER BY 1
 """.strip()
 
+SQL_FALLBACK_UNEMPLOYMENT_MEN_WOMEN_2022 = """
+SELECT
+  "DATE",
+  AVG(CASE WHEN VARIABLE_NAME LIKE '%, Men,%' THEN UNEMPLOYMENT_RATE END) AS male_rate,
+  AVG(CASE WHEN VARIABLE_NAME LIKE '%, Women,%' THEN UNEMPLOYMENT_RATE END) AS female_rate
+FROM HACKATHON.DATA.V_UNEMPLOYMENT
+WHERE "DATE" BETWEEN '2022-01-01' AND '2022-12-31'
+  AND VARIABLE_NAME LIKE '%Unemployment Rate%'
+GROUP BY "DATE"
+ORDER BY "DATE"
+""".strip()
+
+SQL_FALLBACK_AUTO_RETAIL_2019_2023 = """
+SELECT "DATE", SUM(RETAIL_SALES) AS auto_sales
+FROM HACKATHON.DATA.V_RETAIL_SALES
+WHERE VARIABLE_NAME LIKE '%Auto and Other Motor Vehicles%'
+  AND UNIT = 'USD'
+  AND "DATE" BETWEEN '2019-01-01' AND '2023-12-31'
+GROUP BY "DATE"
+ORDER BY "DATE"
+""".strip()
+
+SQL_FALLBACK_TREASURY_SINCE_2020 = """
+SELECT "DATE", AVG(INTEREST_RATE) AS avg_rate, VARIABLE_NAME AS rate_type
+FROM HACKATHON.DATA.V_INTEREST_RATES
+WHERE "DATE" >= '2020-01-01'
+  AND VARIABLE_NAME ILIKE '%Treasury bill%'
+  AND VARIABLE_NAME ILIKE '%Monthly%'
+GROUP BY "DATE", VARIABLE_NAME
+ORDER BY "DATE"
+""".strip()
+
+SQL_FALLBACK_INTEREST_2022_2023 = """
+SELECT "DATE", AVG(INTEREST_RATE) AS avg_rate
+FROM HACKATHON.DATA.V_INTEREST_RATES
+WHERE "DATE" BETWEEN '2022-01-01' AND '2023-12-31'
+  AND VARIABLE_NAME ILIKE '%Treasury bill%'
+  AND VARIABLE_NAME ILIKE '%Monthly%'
+GROUP BY "DATE"
+ORDER BY "DATE"
+""".strip()
+
+SQL_FALLBACK_TOP_INDUSTRIAL_2023 = """
+SELECT VARIABLE_NAME AS sector, AVG(PRODUCTION_INDEX) AS avg_production_index
+FROM HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION
+WHERE "DATE" BETWEEN '2023-01-01' AND '2023-12-31'
+GROUP BY VARIABLE_NAME
+ORDER BY avg_production_index DESC
+LIMIT 10
+""".strip()
+
+SQL_FALLBACK_COMPANIES_GT5_SUBSIDIARIES = """
+SELECT COMPANY_NAME AS parent_company,
+       COUNT(RELATED_COMPANY_NAME) AS subsidiary_count
+FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
+GROUP BY COMPANY_NAME
+HAVING COUNT(RELATED_COMPANY_NAME) > 5
+ORDER BY subsidiary_count DESC
+""".strip()
+
 
 def _wants_subsidiary_leaderboard(q: str) -> bool:
     t = q.lower()
@@ -111,15 +172,50 @@ def _wants_subsidiary_leaderboard(q: str) -> bool:
     return any(k in t for k in ("most", "top", "largest", "many", "number", "count", "biggest"))
 
 
+def _company_name_from_subsidiary_question(q: str) -> str | None:
+    t = q.lower().strip()
+    m = re.search(r"subsidiar(?:y|ies)\s+does\s+(.+?)\s+own", t)
+    if not m:
+        m = re.search(r"what\s+subsidiar(?:y|ies)\s+(.+?)\s+own", t)
+    if not m:
+        return None
+    raw = m.group(1).strip(" ?.,")
+    if not raw:
+        return None
+    return raw.upper().replace("'", "''")
+
+
 def _fallback_sql_for_question(q: str) -> str | None:
     t = q.lower()
     if _wants_subsidiary_leaderboard(t):
         return SQL_FALLBACK_MOST_SUBSIDIARIES
+    if "more than 5" in t and "subsidiar" in t:
+        return SQL_FALLBACK_COMPANIES_GT5_SUBSIDIARIES
+    dyn_company = _company_name_from_subsidiary_question(q)
+    if dyn_company:
+        return (
+            "SELECT RELATED_COMPANY_NAME AS subsidiary\n"
+            "FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS\n"
+            f"WHERE COMPANY_NAME ILIKE '%{dyn_company}%'\n"
+            "ORDER BY RELATED_COMPANY_NAME"
+        )
     if "subsidiar" in t and "kroger" in t:
         return SQL_FALLBACK_KROGER_SUBSIDIARIES
     if "subsidiar" in t and "marriott" in t:
         return SQL_FALLBACK_MARRIOTT_SUBSIDIARIES
+    if "unemployment" in t and "men" in t and "women" in t and "2022" in t:
+        return SQL_FALLBACK_UNEMPLOYMENT_MEN_WOMEN_2022
+    if "auto" in t and "retail" in t and ("2019" in t and "2023" in t):
+        return SQL_FALLBACK_AUTO_RETAIL_2019_2023
+    if ("treasury" in t and "2020" in t) or ("treasury bill" in t and "since 2020" in t):
+        return SQL_FALLBACK_TREASURY_SINCE_2020
+    if "interest" in t and ("2022" in t and "2023" in t):
+        return SQL_FALLBACK_INTEREST_2022_2023
+    if "industrial" in t and "highest" in t and "2023" in t:
+        return SQL_FALLBACK_TOP_INDUSTRIAL_2023
     if "retail" in t and ("top" in t or "category" in t) and "2023" in t:
+        return SQL_FALLBACK_TOP_RETAIL_2023
+    if "biggest retail sectors" in t or ("biggest" in t and "retail" in t and "2023" in t):
         return SQL_FALLBACK_TOP_RETAIL_2023
     if ("aerospace" in t or "aircraft" in t) and ("industrial production" in t or "production" in t):
         return SQL_FALLBACK_AEROSPACE_2019_2023
