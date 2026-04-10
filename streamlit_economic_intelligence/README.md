@@ -13,6 +13,8 @@ It supports:
 
 **Deployment:** see [Section 8 — Deployment — Streamlit in Snowflake](#8-deployment--streamlit-in-snowflake-snowsight) below (Snowsight / Streamlit in Snowflake).
 
+**Repository navigation:** **Main page** — [README.md](../README.md) (repo root). **Quick setup checklist only** — [SETUP.md](../SETUP.md). This file is the **full** technical guide (everything below).
+
 ---
 
 ## Why this submission stands out (for judges)

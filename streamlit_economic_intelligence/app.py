@@ -36,6 +36,8 @@ SEMANTIC_MODEL_FILE = os.environ.get(
 )
 CORTEX_COMPLETE_MODEL = os.environ.get("CORTEX_COMPLETE_MODEL", "mistral-large2")
 CORTEX_ANALYST_PATH = "/api/v2/cortex/analyst/message"
+# Optional: GitHub repo root URL (e.g. https://github.com/org/SNOWFLAKE) for sidebar doc links.
+EI_DOCS_BASE_URL = os.environ.get("EI_DOCS_BASE_URL", "").rstrip("/")
 
 PERSONAS: dict[str, str] = {
     "Executive": (
@@ -3024,6 +3026,34 @@ if session is None:
     st.stop()
 
 with st.sidebar:
+    with st.expander("Repository setup & docs", expanded=False):
+        if EI_DOCS_BASE_URL:
+            _b = EI_DOCS_BASE_URL
+            st.markdown(
+                f"""
+**GitHub links**
+
+- [Repository home (README)]({_b})
+- [SETUP.md (quick checklist)]({_b}/blob/main/SETUP.md)
+- [Full documentation]({_b}/blob/main/streamlit_economic_intelligence/README.md)
+
+Set **`EI_DOCS_BASE_URL`** in app environment if your fork uses a different URL.
+"""
+            )
+        else:
+            st.markdown(
+                """
+**In your clone of this repository**
+
+| File | Purpose |
+|------|--------|
+| `README.md` | Main project page (overview + doc map) |
+| `SETUP.md` | Quick SQL + SiS + packages checklist |
+| `streamlit_economic_intelligence/README.md` | Full guide (architecture, UI reference, Section 8 deployment) |
+
+Optional: set environment variable **`EI_DOCS_BASE_URL`** to your GitHub repo root to show clickable links here.
+"""
+            )
     st.markdown("### Chat & session")
     st.caption(
         "History is this browser session only. Use **Chat history** (top) for a full-page thread, or expand **Full chat transcript** below."
@@ -3088,6 +3118,9 @@ st.markdown(
 </div>
 """,
     unsafe_allow_html=True,
+)
+st.caption(
+    "Documentation: **README.md** (main), **SETUP.md** (quick install), **streamlit_economic_intelligence/README.md** (full guide) — in the GitHub repo; use **Repository setup & docs** in the sidebar for links."
 )
 
 _render_welcome_hero()
