@@ -3,6 +3,6 @@ CREATE STAGE IF NOT EXISTS HACKATHON.DATA.SEMANTIC_MODELS
   DIRECTORY = ( ENABLE = TRUE )
   COMMENT = 'Cortex Analyst semantic YAML for Economic Intelligence';
 
--- After uploading economic_model.yaml:
+-- After uploading semantic_model.yaml:
 -- LIST @HACKATHON.DATA.SEMANTIC_MODELS;
--- Cortex Analyst REST: "semantic_model_file": "@HACKATHON.DATA.SEMANTIC_MODELS/economic_model.yaml"
+-- Cortex Analyst REST: "semantic_model_file": "@HACKATHON.DATA.SEMANTIC_MODELS/semantic_model.yaml"

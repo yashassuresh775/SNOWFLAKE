@@ -27,4 +27,4 @@ Run each prompt in Cortex Analyst (semantic YAML covers **`V_UNEMPLOYMENT`**, **
 | 21 | How many parent relationship rows exist? | Company graph | Single count | |
 | 22 | Which parents have the most subsidiaries? | Company graph | Top-N by count | |
 
-**Notes:** Refine `economic_model.yaml` verified queries and synonyms for any **fail** or **partial** rows. Ensure **Snowflake Data: Finance & Economics** is installed so `SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS` exists.
+**Notes:** Refine `semantic_model.yaml` verified queries and synonyms for any **fail** or **partial** rows. Ensure **Snowflake Data: Finance & Economics** is installed so `SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS` exists.

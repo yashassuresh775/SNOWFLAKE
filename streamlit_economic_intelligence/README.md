@@ -13,14 +13,14 @@ Hackathon **AI-02** app: Cortex Analyst semantic model on **`V_UNEMPLOYMENT`**, 
 5. Upload the semantic model (**re-PUT after any YAML change**):
 
    ```sql
-   PUT file://economic_model.yaml @HACKATHON.DATA.SEMANTIC_MODELS AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
+   PUT file://semantic_model.yaml @HACKATHON.DATA.SEMANTIC_MODELS AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
    ```
 
    (Run from Snowflake CLI or SnowSQL with the file path adjusted; or use **Data » Stages** upload.)
 
 6. **Streamlit in Snowflake:** create a new Streamlit app, point root file to `app.py`, include `requirements.txt` packages. Set secrets/env if needed:
 
-   - `SEMANTIC_MODEL_FILE` — default `@HACKATHON.DATA.SEMANTIC_MODELS/economic_model.yaml`
+   - `SEMANTIC_MODEL_FILE` — default `@HACKATHON.DATA.SEMANTIC_MODELS/semantic_model.yaml`
    - `CORTEX_COMPLETE_MODEL` — default `mistral-large2` (use an LLM enabled on your account, e.g. `llama3-8b`, `snowflake-arctic`)
 
 7. **External access:** if the REST call to `/api/v2/cortex/analyst/message` is blocked, create a **network rule / Egress** as required by your org (training accounts often allow Snowflake REST to same account).

@@ -13,11 +13,11 @@ Run in a worksheet as a role that can create objects in `HACKATHON` and read `SN
 Upload the semantic model to the stage (adjust path to your local file or use **Data → Stages → Upload**):
 
 ```sql
-PUT file://economic_model.yaml @HACKATHON.DATA.SEMANTIC_MODELS
+PUT file://semantic_model.yaml @HACKATHON.DATA.SEMANTIC_MODELS
   AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
 ```
 
-Use the file from `hackathon/semantic_models/economic_model.yaml`.
+Use the file from `hackathon/semantic_models/semantic_model.yaml`.
 
 Confirm:
 
@@ -69,7 +69,7 @@ If your app settings expose **environment variables** or **secrets**:
 
 | Name | Example value |
 |------|----------------|
-| `SEMANTIC_MODEL_FILE` | `@HACKATHON.DATA.SEMANTIC_MODELS/economic_model.yaml` |
+| `SEMANTIC_MODEL_FILE` | `@HACKATHON.DATA.SEMANTIC_MODELS/semantic_model.yaml` |
 | `CORTEX_COMPLETE_MODEL` | `llama3-8b` or `snowflake-arctic` if `mistral-large2` is not enabled |
 
 If unset, the app uses the defaults in `app.py`.

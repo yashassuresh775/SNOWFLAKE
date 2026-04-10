@@ -1,5 +1,5 @@
 # Cortex Analyst — US economic intelligence (granular views + company graph)
-# Views: hackathon/economic_indicators_views.sql  |  PUT → @HACKATHON.DATA.SEMANTIC_MODELS
+# Views: hackathon/economic_indicators_views.sql  |  PUT → @HACKATHON.DATA.SEMANTIC_MODELS/semantic_model.yaml
 
 name: us_economic_intelligence
 description: >

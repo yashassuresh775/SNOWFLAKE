@@ -25,7 +25,7 @@ except Exception:  # noqa: BLE001
 # ── config ────────────────────────────────────────────────────────────────
 SEMANTIC_MODEL_FILE = os.environ.get(
     "SEMANTIC_MODEL_FILE",
-    "@HACKATHON.DATA.SEMANTIC_MODELS/economic_model.yaml",
+    "@HACKATHON.DATA.SEMANTIC_MODELS/semantic_model.yaml",
 )
 CORTEX_COMPLETE_MODEL = os.environ.get("CORTEX_COMPLETE_MODEL", "mistral-large2")
 CORTEX_ANALYST_PATH = "/api/v2/cortex/analyst/message"
