@@ -464,6 +464,103 @@ def classify_query(question: str) -> tuple[str, str]:
     return "ANALYTICAL", "General analytical question"
 
 
+def _assistant_reply_when_no_narrative(
+    question: str,
+    query_class: str,
+    df: pd.DataFrame,
+) -> str:
+    """Sensible chat line when Cortex COMPLETE and Analyst text are empty but rows returned."""
+    if df is None or df.empty or "Error" in df.columns:
+        return "Here are the results — see the chart and data."
+    t = _normalize_question(question)
+    cols_joined = " ".join(str(c).lower() for c in df.columns)
+
+    _ts_date, _ts_val = _time_series_cols(df)
+    if _has_any(t, ("cpi", "consumer price", "headline cpi", "inflation")) and (
+        "cpi" in cols_joined
+        or "cpi_index" in cols_joined
+        or (
+            _ts_date
+            and _ts_val
+            and (
+                "cpi" in t
+                or "headline cpi" in t
+                or "consumer price" in t
+                or "cpi index" in t
+            )
+        )
+    ):
+        return (
+            "Plotted above: **monthly headline CPI** (all-items index, seasonally adjusted) for your range, "
+            "from the semantic **cpi** logical table (V_CPI). Use **Data** for rows and **Technical → SQL** for the exact query."
+        )
+
+    if "gdp" in t and "gdp" in cols_joined:
+        return (
+            "**Real GDP** (quarterly, SAAR) for your question is in the chart and **Data**; "
+            "the SQL panel references **gdp** / V_GDP."
+        )
+
+    if "unemployment" in t or "unemployment_rate" in cols_joined:
+        return (
+            "**Unemployment rate** for your question is in the chart and table; see **Technical** for SQL."
+        )
+
+    if query_class == "MULTI_METRIC" or (
+        _has_any(t, ("compare", "versus", " vs ", "same timeline", "together"))
+        and sum(
+            1
+            for k in (
+                "unemployment",
+                "cpi",
+                "inflation",
+                "retail",
+                "gdp",
+                "industrial",
+                "fed",
+                "treasury",
+            )
+            if k in t
+        )
+        >= 2
+    ):
+        return (
+            "**Multiple indicators** share one timeline in the chart; use **Data** for values and **Technical** for the join SQL."
+        )
+
+    if query_class == "COMPANY_GRAPH" or _wants_subsidiary_leaderboard(t) or "subsidiar" in t:
+        return (
+            "Corporate **parent → subsidiary** results for your question are below; refine or export from here."
+        )
+
+    if "retail" in t and ("retail" in cols_joined or "sales" in cols_joined):
+        return "**Retail sales** (USD) for your filters are in the chart and **Data** panel."
+
+    if _has_any(t, ("treasury", "fed funds", "federal funds")) or (
+        query_class == "RATES" and "rate" in t
+    ):
+        return (
+            "Interest-rate / Treasury series for your question are shown above; confirm series names in **Technical → SQL**."
+        )
+
+    if _has_any(t, ("industrial", "production")):
+        return "**Industrial production** for your period is in the chart and table."
+
+    if query_class == "RANKING":
+        return "Ranking / top-N results are in the table (and chart when applicable)."
+
+    if query_class == "EXTREMA":
+        return "Peak or trough values for your question are reflected in the results above."
+
+    if query_class == "PRICES_OUTPUT":
+        return "Price or output series for your question are visualized above; see **Data** and **Technical** for detail."
+
+    if query_class == "TIME_SERIES":
+        return "Your **time series** is charted above; row-level values are in **Data** and the query under **Technical**."
+
+    return "Here are the results — see the chart and data."
+
+
 def ambiguity_warnings(question: str) -> list[str]:
     """Heuristic ambiguity flags for NL analytics."""
     t = _normalize_question(question)
@@ -951,10 +1048,10 @@ div[data-testid="stTabs"] [role="tablist"] button[aria-selected="true"] {
 }
 /* Main ask form — aligned row, no broken button label, single input chrome */
 form[data-testid="stForm"] {
-    border: 1px solid rgba(167, 139, 250, 0.22) !important;
-    border-radius: 14px !important;
-    padding: 10px 12px 10px 12px !important;
-    margin: 0 0 6px 0 !important;
+    border: 1px solid rgba(167, 139, 250, 0.28) !important;
+    border-radius: 16px !important;
+    padding: 14px 16px 14px 16px !important;
+    margin: 0 0 8px 0 !important;
     background: linear-gradient(165deg, rgba(30, 27, 75, 0.28), rgba(15, 23, 42, 0.45)) !important;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
 }
@@ -979,8 +1076,8 @@ form[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testi
 }
 form[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-child {
     flex: 0 0 auto !important;
-    min-width: 10.5rem !important;
-    max-width: 14rem !important;
+    min-width: 11.5rem !important;
+    max-width: 15rem !important;
 }
 form[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
     flex: 1 1 auto !important;
@@ -995,9 +1092,9 @@ form[data-testid="stForm"] div[data-testid="stTextInput"] [data-baseweb="input"]
     box-shadow: none !important;
 }
 form[data-testid="stForm"] div[data-testid="stTextInput"] input {
-    min-height: 48px !important;
-    font-size: 15px !important;
-    line-height: 1.35 !important;
+    min-height: 58px !important;
+    font-size: 18px !important;
+    line-height: 1.4 !important;
     border: 1px solid var(--dm-border2) !important;
     border-radius: 11px !important;
     background: var(--dm-bg-mid) !important;
@@ -1011,13 +1108,13 @@ form[data-testid="stForm"] [data-testid="stFormSubmitButton"] button,
 form[data-testid="stForm"] button[kind="primary"] {
     white-space: nowrap !important;
     width: 100% !important;
-    min-height: 48px !important;
+    min-height: 58px !important;
     height: 100% !important;
-    border-radius: 11px !important;
-    font-weight: 600 !important;
-    font-size: 0.9375rem !important;
-    letter-spacing: 0.02em !important;
-    padding: 0 1.1rem !important;
+    border-radius: 12px !important;
+    font-weight: 700 !important;
+    font-size: 1.05rem !important;
+    letter-spacing: 0.03em !important;
+    padding: 0 1.25rem !important;
     line-height: 1.2 !important;
 }
 /* Radio */
@@ -1665,11 +1762,51 @@ div[data-testid="stDataFrame"] {
     line-height: 1.45 !important;
 }
 .ei-ask-head {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--dm-text);
+    font-size: clamp(20px, 2.2vw, 26px);
+    font-weight: 800;
+    color: var(--dm-ice);
     margin: 0 0 6px 0;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+}
+.ei-ask-sub {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--dm-muted);
+    margin: 0 0 14px 0;
+    line-height: 1.45;
+    max-width: 48rem;
+}
+.ei-example-section-label {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--dm-sky);
+    margin: 6px 0 12px 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(41, 181, 232, 0.25);
+}
+/* Main area: larger secondary buttons (example picks, follow-ups, starter chips) */
+section.main div[data-testid="stButton"] button:not([kind="primary"]) {
+    min-height: 52px !important;
+    padding: 12px 14px !important;
+    font-size: 15px !important;
+    font-weight: 500 !important;
+    line-height: 1.35 !important;
+    white-space: normal !important;
+    text-align: left !important;
+    justify-content: flex-start !important;
+}
+[data-testid="stSidebar"] div[data-testid="stButton"] button:not([kind="primary"]) {
+    min-height: unset !important;
+    padding: inherit !important;
+    font-size: inherit !important;
+    font-weight: inherit !important;
+    line-height: inherit !important;
+    white-space: nowrap !important;
+    text-align: center !important;
+    justify-content: center !important;
 }
 details summary {
     font-weight: 600 !important;
@@ -2124,23 +2261,23 @@ SUGGESTED_COMPANIES = [
     "What subsidiaries does Marriott own?",
 ]
 
-# Left-rail quick picks (Executive BI–style example list)
+# Left-rail quick picks — ordered for time-series / multi-series charts (line & area)
 EXAMPLE_QUICK: list[tuple[str, str]] = [
+    ("📈", "Show monthly headline CPI index from 2019 through 2024."),
+    ("📈", "Show US real GDP by quarter for the last five years."),
     ("📈", "What is the US unemployment trend from 2020 to 2024?"),
     ("📈", "How have Treasury bill rates changed since 2020?"),
-    ("📈", "What are the top retail sales categories in 2023?"),
-    ("💹", "Show monthly headline CPI index from 2019 through 2024."),
-    ("💹", "Show US real GDP by quarter for the last five years."),
-    ("🔗", "Compare unemployment and CPI on the same monthly timeline since 2020."),
-    ("🏢", "Which company owns the most subsidiaries?"),
-    ("🏢", "What subsidiaries does Kroger own?"),
+    ("📈", "Compare unemployment and CPI on the same monthly timeline since 2020."),
+    ("📈", "Compare unemployment and industrial production over time since 2020."),
+    ("📈", "Compare unemployment trend and total retail sales (USD) since 2020."),
+    ("📊", "How did interest rates change between 2022 and 2023?"),
 ]
 
 
 def _render_vertical_examples(items: list[tuple[str, str]], key_prefix: str) -> None:
     for i, (icon, q) in enumerate(items):
-        short = q if len(q) <= 52 else q[:49] + "…"
-        label = f"{icon}  {short}"
+        # Full text on the button — CSS wraps; wide rail + large tap targets for demos
+        label = f"{icon}  {q}"
         if st.button(label, key=f"{key_prefix}_{i}", use_container_width=True):
             st.session_state.pending_question = q
             st.rerun()
@@ -2248,7 +2385,7 @@ def _render_dashboard_layout() -> tuple[bool, str]:
                 help="Organizes starter prompts; both use the same semantic model today.",
             )
             st.markdown(
-                '<div class="section-label" style="margin-top:4px">Example questions</div>',
+                '<div class="ei-example-section-label">Chart-ready examples</div>',
                 unsafe_allow_html=True,
             )
             _render_vertical_examples(EXAMPLE_QUICK, "ex_left")
@@ -2278,7 +2415,9 @@ def _render_dashboard_layout() -> tuple[bool, str]:
     with _center_col:
         with _glass_panel():
             st.markdown(
-                '<div class="ei-ask-head">Ask &amp; analyze</div>',
+                '<div class="ei-ask-head">Ask &amp; analyze</div>'
+                '<div class="ei-ask-sub">Type below or tap a <strong>chart-ready</strong> example on the left — '
+                "unemployment, CPI, GDP, rates, and multi-metric compares all render as <strong>line charts</strong> when the result is a time series.</div>",
                 unsafe_allow_html=True,
             )
             with st.expander("Conversation thread", expanded=False):
@@ -2294,8 +2433,9 @@ def _render_dashboard_layout() -> tuple[bool, str]:
                 with _qrow1:
                     user_input = st.text_input(
                         "Your question",
-                        placeholder="Ask anything, e.g. monthly CPI 2019–2024…",
+                        placeholder="Try: monthly CPI 2019–2024 · unemployment vs CPI since 2020 · Treasury bills since 2020…",
                         label_visibility="collapsed",
+                        key="ei_chat_input",
                     )
                 with _qrow2:
                     submitted = st.form_submit_button(
@@ -2499,6 +2639,15 @@ st.divider()
 
 query_progress = st.empty()
 
+# Capture follow-up / chip questions before any widgets (esp. st.form) run — avoids
+# intermittent loss of pending_question on alternating reruns in SiS.
+_followup_pending: str | None = None
+_raw_pq = st.session_state.get("pending_question")
+if _raw_pq:
+    _pq = str(_raw_pq).strip()
+    st.session_state.pending_question = None
+    _followup_pending = _pq if _pq else None
+
 if st.session_state.get("ei_top_nav", "dashboard") == "dashboard":
     submitted, user_input = _render_dashboard_layout()
 else:
@@ -2510,9 +2659,8 @@ else:
 # ══════════════════════════════════════════════════════════════════════════
 
 question: str | None = None
-if st.session_state.pending_question:
-    question = st.session_state.pending_question
-    st.session_state.pending_question = None
+if _followup_pending:
+    question = _followup_pending
 elif submitted and user_input and user_input.strip():
     question = user_input.strip()
 
@@ -2612,7 +2760,7 @@ if question:
                     reply = (
                         narrative
                         or _clean_analyst_text
-                        or "Here are the results — see the chart and data."
+                        or _assistant_reply_when_no_narrative(question_for_model, _qc, df)
                     )
                     if digest:
                         reply = f"{reply}\n\n{digest}"
@@ -2656,7 +2804,7 @@ if question:
                         fallback_msg = (
                             narrative
                             or _clean_analyst_text
-                            or "Here are the fallback results."
+                            or _assistant_reply_when_no_narrative(question_for_model, _qc, df)
                         )
                         if digest:
                             fallback_msg = f"{fallback_msg}\n\n{digest}"
