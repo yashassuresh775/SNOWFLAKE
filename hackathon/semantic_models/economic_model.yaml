@@ -1,0 +1,112 @@
+name: us_economic_intelligence
+description: US macroeconomic indicators for natural language BI — unemployment, CPI, GDP, Fed funds, retail, industrial production.
+custom_instructions: |
+  Prefer monthly series when users ask for "trend" or "over time" unless they specify quarterly or annual.
+  Round numeric outputs to 2 decimal places. Use OBSERVATION_DATE for time filters.
+  When comparing indicators, align on GEO_ID and OBSERVATION_DATE. Default to national / US series when geography is unspecified.
+
+tables:
+  - name: economic_indicators
+    description: Monthly US economic indicators joined on geography and observation date — unemployment, CPI, GDP, Fed funds, retail sales, industrial production, Treasury yields.
+    base_table:
+      database: HACKATHON
+      schema: DATA
+      table: ECONOMIC_INDICATORS_WIDE
+
+    dimensions:
+      - name: geo_id
+        synonyms: ["geo", "region", "fips", "geography", "area", "location"]
+        description: Geographic identifier for the economic series (e.g. national or state FIPS).
+        expr: GEO_ID
+        data_type: text
+        unique: false
+
+      - name: observation_date
+        synonyms: ["date", "period", "month", "year", "when", "time", "day"]
+        description: Calendar date of the economic observation.
+        expr: OBSERVATION_DATE
+        data_type: date
+        unique: false
+
+    measures:
+      - name: unemployment_rate
+        synonyms: ["jobless rate", "unemployment", "jobs", "labor", "out of work", "unemployed", "U-3"]
+        description: US unemployment rate as a percent of the labor force.
+        expr: UNEMPLOYMENT_RATE
+        data_type: number
+        default_aggregation: avg
+        sample_values: [3.5, 4.0, 14.7, 6.0, 3.7]
+
+      - name: cpi
+        synonyms: ["inflation", "consumer price", "cost of living", "prices", "CPI", "price index"]
+        description: Consumer Price Index level — higher values indicate higher price levels over time.
+        expr: CPI
+        data_type: number
+        default_aggregation: avg
+        sample_values: [250, 260, 280, 296, 310]
+
+      - name: fed_funds_rate
+        synonyms: ["interest rate", "federal funds", "fed rate", "monetary policy", "rate hike", "benchmark rate", "policy rate"]
+        description: Effective Federal Funds rate or closely related policy rate series in the wide table.
+        expr: FED_FUNDS_RATE
+        data_type: number
+        default_aggregation: avg
+        sample_values: [0.08, 0.5, 2.5, 5.25]
+
+      - name: gdp
+        synonyms: ["gross domestic product", "economic output", "economy size", "economic growth", "GDP", "real gdp"]
+        description: Gross domestic product level or index as provided in the source feed.
+        expr: GDP
+        data_type: number
+        default_aggregation: avg
+
+      - name: retail_sales
+        synonyms: ["retail", "sales", "consumer spending", "census retail", "store sales"]
+        description: Monthly retail sales indicator from Census retail series.
+        expr: RETAIL_SALES
+        data_type: number
+        default_aggregation: avg
+
+      - name: industrial_production
+        synonyms: ["industrial production", "factory output", "manufacturing index", "ip"]
+        description: Federal Reserve industrial production index.
+        expr: INDUSTRIAL_PRODUCTION
+        data_type: number
+        default_aggregation: avg
+
+      - name: treasury_10yr
+        synonyms: ["10-year yield", "treasury yield", "bond rate", "long-term rate", "10Y", "ten year"]
+        description: Long-term Treasury yield where available in the wide table.
+        expr: TREASURY_10YR
+        data_type: number
+        default_aggregation: avg
+
+verified_queries:
+  - name: unemployment_peak_2020
+    question: What was the peak unemployment rate in 2020?
+    sql: |
+      SELECT MAX(UNEMPLOYMENT_RATE) AS peak_unemployment,
+             DATE_TRUNC('month', OBSERVATION_DATE) AS month
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE OBSERVATION_DATE BETWEEN '2020-01-01' AND '2020-12-31'
+      GROUP BY 2
+      ORDER BY 1 DESC
+      LIMIT 1
+
+  - name: unemployment_trend_since_2020
+    question: Show me the unemployment rate trend since 2020
+    sql: |
+      SELECT OBSERVATION_DATE, UNEMPLOYMENT_RATE
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE OBSERVATION_DATE >= '2020-01-01'
+        AND UNEMPLOYMENT_RATE IS NOT NULL
+      ORDER BY OBSERVATION_DATE
+
+  - name: retail_sales_trend_covid
+    question: Show retail sales trend since COVID
+    sql: |
+      SELECT OBSERVATION_DATE, RETAIL_SALES
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE OBSERVATION_DATE >= '2020-01-01'
+        AND RETAIL_SALES IS NOT NULL
+      ORDER BY OBSERVATION_DATE
