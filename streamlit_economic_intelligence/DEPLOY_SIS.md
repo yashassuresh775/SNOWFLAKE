@@ -50,21 +50,18 @@ SELECT COUNT(*) FROM HACKATHON.DATA.V_UNEMPLOYMENT;
 
 ## 4. Python packages (required — or imports fail)
 
-Streamlit in Snowflake **does not** ship with Plotly. If you see a crash on **`import plotly.express as px`** (or `ModuleNotFoundError: No module named 'plotly'`), the app’s **Packages** are missing or not saved.
-
-In the app **Settings** / **Packages** (wording varies), add **every** dependency, one per line, for example:
+If you see **`ModuleNotFoundError`** (often **`requests`**), add packages in app **Settings** / **Packages**, one per line:
 
 ```
 streamlit>=1.31.0
 pandas>=2.0.0
-plotly>=5.18.0
 requests>=2.31.0
 snowflake-snowpark-python>=1.11.0
 ```
 
-(Same as `requirements.txt` in this folder.)
+(Same as `requirements.txt` — **no Plotly**; charts use native `st.line_chart` / `st.bar_chart`.)
 
-**Save**, then **Run** again. `streamlit` / `pandas` / `snowpark` may already be provided by the runtime — **`plotly` is usually the one you must add explicitly.**
+**Save**, then **Run** again. Add **`requests`** if you see `ModuleNotFoundError: No module named 'requests'`.
 
 ## 5. Optional environment variables
 
