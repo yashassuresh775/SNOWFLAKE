@@ -165,6 +165,34 @@ HAVING COUNT(RELATED_COMPANY_NAME) > 5
 ORDER BY subsidiary_count DESC
 """.strip()
 
+SQL_FALLBACK_CPI_MONTHLY_2019_2024 = """
+SELECT "DATE", CPI_INDEX, VARIABLE_NAME
+FROM HACKATHON.DATA.V_CPI
+WHERE "DATE" BETWEEN '2019-01-01' AND '2024-12-31'
+ORDER BY "DATE"
+""".strip()
+
+SQL_FALLBACK_GDP_QUARTERLY_5Y = """
+SELECT "DATE", GDP_VALUE, UNIT, VARIABLE_NAME, FREQUENCY
+FROM HACKATHON.DATA.V_GDP
+WHERE "DATE" >= DATEADD(year, -5, CURRENT_DATE())
+ORDER BY "DATE"
+""".strip()
+
+SQL_FALLBACK_MACRO_UNEMPLOYMENT_CPI_2020 = """
+SELECT OBSERVATION_DATE, UNEMPLOYMENT_RATE, CPI
+FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+WHERE OBSERVATION_DATE >= '2020-01-01'
+ORDER BY OBSERVATION_DATE
+""".strip()
+
+SQL_FALLBACK_MACRO_UNEMPLOYMENT_IP_2020 = """
+SELECT OBSERVATION_DATE, UNEMPLOYMENT_RATE, INDUSTRIAL_PRODUCTION
+FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+WHERE OBSERVATION_DATE >= '2020-01-01'
+ORDER BY OBSERVATION_DATE
+""".strip()
+
 
 def _normalize_question(q: str) -> str:
     t = q.lower().strip()
@@ -247,6 +275,20 @@ def _fallback_sql_for_question(q: str) -> str | None:
     if _has_any(t, ("aerospace", "aircraft", "aviation")) and _has_any(t, ("industrial production", "production")):
         return SQL_FALLBACK_AEROSPACE_2019_2023
 
+    # CPI / GDP (headline series views)
+    if _has_any(t, ("cpi", "consumer price", "inflation")) and _has_any(t, ("monthly", "trend", "2019", "2024", "show")):
+        if "gdp" not in t and "unemployment" not in t:
+            return SQL_FALLBACK_CPI_MONTHLY_2019_2024
+    if "gdp" in t or "gross domestic product" in t:
+        if _has_any(t, ("quarter", "last 5", "five year", "5 year", "trend", "show")):
+            return SQL_FALLBACK_GDP_QUARTERLY_5Y
+
+    # Macro wide — same timeline comparisons
+    if "unemployment" in t and _has_any(t, ("cpi", "consumer price", "inflation")) and _has_any(t, ("2020", "since", "compare", "same")):
+        return SQL_FALLBACK_MACRO_UNEMPLOYMENT_CPI_2020
+    if "unemployment" in t and _has_any(t, ("industrial production", "production")) and _has_any(t, ("2020", "since", "compare")):
+        return SQL_FALLBACK_MACRO_UNEMPLOYMENT_IP_2020
+
     return None
 
 
@@ -261,6 +303,8 @@ SPELLING_MAP = {
     "aeropsace": "aerospace",
     "industrail": "industrial",
     "treasurry": "treasury",
+    "inflaton": "inflation",
+    "consmer": "consumer",
 }
 
 DOMAIN_TERMS = [
@@ -278,6 +322,9 @@ DOMAIN_TERMS = [
     "company",
     "kroger",
     "marriott",
+    "inflation",
+    "cpi",
+    "gdp",
 ]
 
 
@@ -311,8 +358,7 @@ def _result_digest(df: pd.DataFrame) -> str:
     cols = df.columns.tolist()
     numeric_cols = list(df.select_dtypes(include="number").columns)
     bits = [f"Rows: {len(df)}", f"Columns: {len(cols)}"]
-    if numeric_cols:
-        c = numeric_cols[0]
+    for c in numeric_cols[:4]:
         try:
             bits.append(f"{c}: min {df[c].min():,.2f}, max {df[c].max():,.2f}")
         except Exception:  # noqa: BLE001
@@ -361,36 +407,50 @@ st.markdown(
     """
 <style>
 .main-header {
-    font-size: 28px; font-weight: 700;
-    color: #1a1a2e; margin-bottom: 4px;
+    font-size: 28px; font-weight: 800;
+    margin-bottom: 4px;
+    background: linear-gradient(120deg, #0d47a1 0%, #1565c0 40%, #00838f 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 .sub-header {
-    font-size: 14px; color: #666;
-    margin-bottom: 24px;
+    font-size: 14px; color: #5c6b7a;
+    margin-bottom: 20px;
+    line-height: 1.45;
 }
 .user-bubble {
-    background: #0066cc; color: white;
+    background: linear-gradient(135deg, #1565c0 0%, #0d47a1 100%);
+    color: white;
     padding: 10px 16px; border-radius: 18px 18px 4px 18px;
     margin: 8px 0; max-width: 80%; float: right; clear: both;
     font-size: 14px;
+    box-shadow: 0 2px 8px rgba(13, 71, 161, 0.2);
 }
 .ai-bubble {
-    background: #f0f4ff; color: #1a1a2e;
+    background: linear-gradient(145deg, #f8fafc 0%, #eef2ff 100%);
+    color: #1a1a2e;
     padding: 10px 16px; border-radius: 18px 18px 18px 4px;
     margin: 8px 0; max-width: 85%; float: left; clear: both;
     font-size: 14px;
+    border: 1px solid rgba(21, 101, 192, 0.12);
+    box-shadow: 0 1px 6px rgba(0,0,0,0.06);
 }
 .sql-box {
-    background: #1e1e2e; color: #79c0ff;
-    padding: 12px 16px; border-radius: 8px;
+    background: linear-gradient(160deg, #1a1f2e 0%, #252b3d 100%);
+    color: #82c4ff;
+    padding: 12px 16px; border-radius: 10px;
     font-family: monospace; font-size: 12px;
     white-space: pre-wrap; overflow-x: auto; margin-top: 8px;
+    border: 1px solid rgba(130, 196, 255, 0.15);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
 }
 .clearfix { clear: both; }
 .section-label {
-    font-size: 11px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.08em;
-    color: #888; margin-bottom: 6px;
+    font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: #00838f;
+    margin-bottom: 8px;
 }
 </style>
 """,
@@ -496,7 +556,12 @@ def render_chart(df: pd.DataFrame) -> None:
         return
     cols = df.columns.tolist()
     date_col = next(
-        (c for c in cols if "date" in c.lower() or c.lower() in ("month", "observation_date")),
+        (
+            c
+            for c in cols
+            if "date" in c.lower()
+            or c.lower() in ("month", "observation_date", "observation_month")
+        ),
         None,
     )
     num_cols = list(df.select_dtypes(include="number").columns)
@@ -524,16 +589,42 @@ def render_chart(df: pd.DataFrame) -> None:
     st.dataframe(df, use_container_width=True)
 
 
-SUGGESTED = [
+SUGGESTED_CORE = [
     "What is the US unemployment trend from 2020 to 2024?",
-    "Which company owns the most subsidiaries?",
     "How have Treasury bill rates changed since 2020?",
     "What are the top retail sales categories in 2023?",
     "How did aerospace industrial production trend from 2019 to 2023?",
-    "What subsidiaries does Kroger own?",
-    "How did unemployment differ between men and women in 2022?",
     "Which industrial sectors had the highest production in 2023?",
+    "How did unemployment differ between men and women in 2022?",
 ]
+
+SUGGESTED_PRICES_GDP = [
+    "Show monthly headline CPI index from 2019 through 2024.",
+    "What was the peak year-over-year headline CPI inflation rate in 2022?",
+    "Show US real GDP by quarter for the last five years.",
+]
+
+SUGGESTED_MACRO_WIDE = [
+    "Compare unemployment and CPI on the same monthly timeline since 2020.",
+    "Compare unemployment and industrial production over time since 2020.",
+    "Compare unemployment trend and total retail sales (USD) since 2020.",
+]
+
+SUGGESTED_COMPANIES = [
+    "Which company owns the most subsidiaries?",
+    "What subsidiaries does Kroger own?",
+    "What subsidiaries does Marriott own?",
+]
+
+
+def _render_suggestion_chips(questions: list[str], key_prefix: str) -> None:
+    cols = st.columns(2)
+    for i, q in enumerate(questions):
+        label = q[:78] + ("…" if len(q) > 78 else "")
+        with cols[i % 2]:
+            if st.button(label, key=f"{key_prefix}_{i}", use_container_width=True):
+                st.session_state.pending_question = q
+                st.rerun()
 
 # ── session state ─────────────────────────────────────────────────────────
 if "messages" not in st.session_state:
@@ -562,20 +653,21 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.markdown(
-    '<div class="sub-header">Ask about US unemployment, retail sales, interest rates, '
-    "industrial production, or corporate ownership — powered by Cortex Analyst</div>",
+    '<div class="sub-header">Natural language over unemployment, retail, rates, industrial production, '
+    "<strong>CPI</strong>, <strong>GDP</strong>, the <strong>macro wide</strong> join panel, and corporate "
+    "ownership — Cortex Analyst + verified SQL fallbacks.</div>",
     unsafe_allow_html=True,
 )
 
 m1, m2, m3, m4 = st.columns(4)
 with m1:
-    st.metric("Data sources", "Finance & Economics + company graph")
+    st.metric("Logical tables", "8 domains", help="Granular V_* + macro_wide + company graph")
 with m2:
-    st.metric("Semantic tables", "5 logical models")
+    st.metric("Join panel", "ECONOMIC_INDICATORS_WIDE", help="Shared timeline for multi-metric compares")
 with m3:
-    st.metric("Typical range", "Multi-decade series")
+    st.metric("Prices & output", "CPI + GDP views", help="V_CPI monthly, V_GDP quarterly")
 with m4:
-    st.metric("Company edges", "Parent → subsidiary")
+    st.metric("Company graph", "Parent → subsidiary", help="V_COMPANY_RELATIONSHIPS")
 
 st.divider()
 
@@ -614,12 +706,17 @@ with left:
         '<div class="section-label" style="margin-top:12px">Suggested questions</div>',
         unsafe_allow_html=True,
     )
-    cols = st.columns(2)
-    for i, q in enumerate(SUGGESTED[:6]):
-        with cols[i % 2]:
-            if st.button(q[:80] + ("…" if len(q) > 80 else ""), key=f"sug_{i}", use_container_width=True):
-                st.session_state.pending_question = q
-                st.rerun()
+    tab_core, tab_pg, tab_wide, tab_co = st.tabs(
+        ["Core macro", "CPI & GDP", "Multi-metric (wide)", "Companies"]
+    )
+    with tab_core:
+        _render_suggestion_chips(SUGGESTED_CORE, "sug_core")
+    with tab_pg:
+        _render_suggestion_chips(SUGGESTED_PRICES_GDP, "sug_pg")
+    with tab_wide:
+        _render_suggestion_chips(SUGGESTED_MACRO_WIDE, "sug_wide")
+    with tab_co:
+        _render_suggestion_chips(SUGGESTED_COMPANIES, "sug_co")
 
     if st.session_state.last_followups:
         st.markdown(
@@ -638,32 +735,37 @@ with right:
         unsafe_allow_html=True,
     )
     if st.session_state.last_df is not None:
-        if st.session_state.last_interpretation:
-            st.info(st.session_state.last_interpretation)
-        render_chart(st.session_state.last_df)
-        with st.expander("View raw data table"):
-            st.dataframe(st.session_state.last_df, use_container_width=True)
-        if st.session_state.last_sql:
-            st.markdown(
-                '<div class="section-label" style="margin-top:12px">'
-                "Generated SQL — transparency panel</div>",
-                unsafe_allow_html=True,
-            )
-            safe_sql = html.escape(st.session_state.last_sql)
-            st.markdown(
-                f'<div class="sql-box">{safe_sql}</div>',
-                unsafe_allow_html=True,
-            )
+        with st.container():
+            if st.session_state.last_interpretation:
+                st.info(st.session_state.last_interpretation)
+            render_chart(st.session_state.last_df)
+            with st.expander("View raw data table"):
+                st.dataframe(st.session_state.last_df, use_container_width=True)
+            if st.session_state.last_sql:
+                st.markdown(
+                    '<div class="section-label" style="margin-top:12px">'
+                    "Generated SQL — transparency panel</div>",
+                    unsafe_allow_html=True,
+                )
+                safe_sql = html.escape(st.session_state.last_sql)
+                st.markdown(
+                    f'<div class="sql-box">{safe_sql}</div>',
+                    unsafe_allow_html=True,
+                )
     else:
         st.markdown(
             """
-<div style="text-align:center; padding:60px 20px; color:#888;">
-<div style="font-size:40px; margin-bottom:16px">📊</div>
-<div style="font-size:16px; font-weight:500; margin-bottom:8px">
+<div style="text-align:center; padding:52px 20px; color:#5c6b7a;
+  background:linear-gradient(180deg,#fafbfd 0%,#f0f4fa 100%);
+  border-radius:12px; border:1px solid rgba(0,131,143,0.12);
+  box-shadow:0 4px 20px rgba(13,71,161,0.06);">
+<div style="font-size:44px; margin-bottom:12px">📈</div>
+<div style="font-size:17px; font-weight:600; margin-bottom:10px; color:#1a1a2e">
                     Ask a question to get started
 </div>
-<div style="font-size:13px">
-                    Use suggested questions or type your own.
+<div style="font-size:13px; line-height:1.5; max-width:340px; margin:0 auto;">
+                    Try <strong>CPI &amp; GDP</strong> or <strong>Multi-metric (wide)</strong> tabs for the newest
+                    semantic tables, or type your own.
 </div>
 </div>
             """,
