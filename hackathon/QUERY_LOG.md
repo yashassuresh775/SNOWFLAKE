@@ -1,6 +1,6 @@
 # NL query log — Economic Intelligence (AI-02)
 
-Run each prompt in Cortex Analyst (semantic YAML covers `ECONOMIC_INDICATORS_WIDE` **and** `V_COMPANY_RELATIONSHIPS`) or through the Streamlit app. Mark **pass** / **partial** / **fail** after validating SQL and row counts.
+Run each prompt in Cortex Analyst (semantic YAML covers **`V_UNEMPLOYMENT`**, **`V_RETAIL_SALES`**, **`V_INTEREST_RATES`**, **`V_INDUSTRIAL_PRODUCTION`**, **`V_COMPANY_RELATIONSHIPS`**) or through the Streamlit app. Mark **pass** / **partial** / **fail** after validating SQL and row counts.
 
 | # | Question | Type | Expected | Result |
 |---|----------|------|----------|--------|

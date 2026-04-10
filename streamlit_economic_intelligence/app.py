@@ -1,6 +1,6 @@
 """
 Economic Intelligence — Streamlit in Snowflake (Cortex Analyst + Cortex COMPLETE).
-Hackathon AI-02: Conversational BI with semantic YAML on HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE.
+Hackathon AI-02: Conversational BI with Cortex Analyst semantic YAML (granular V_* views + company graph).
 """
 
 from __future__ import annotations

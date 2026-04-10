@@ -1,416 +1,443 @@
-# Cortex Analyst semantic model — macro + company graph
-# Macro: HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE (02_economic_indicators_wide.sql)
-# Company: HACKATHON.DATA.V_COMPANY_RELATIONSHIPS ← SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS
-# Upload: PUT to @HACKATHON.DATA.SEMANTIC_MODELS
+# Cortex Analyst — US economic intelligence (granular views + company graph)
+# Views: hackathon/economic_indicators_views.sql  |  PUT → @HACKATHON.DATA.SEMANTIC_MODELS
 
 name: us_economic_intelligence
-description: |
-  Two domains: (1) US macroeconomic time series — labor, inflation, GDP, retail, rates, industrial production — at
-  GEO_ID × OBSERVATION_DATE grain on ECONOMIC_INDICATORS_WIDE. (2) Corporate relationships — parent/subsidiary-style
-  edges on V_COMPANY_RELATIONSHIPS (filtered parent-direction rows from SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS).
-  These tables are not joined; route macro questions to economic_indicators and corporate-structure questions to company_relationships.
+description: >
+  US economic intelligence assistant covering unemployment trends, retail sales, interest rates,
+  industrial production, and corporate ownership relationships. Data sourced from Bureau of Labor Statistics,
+  US Census Bureau, Federal Reserve, and Snowflake Public Data company graph (SNOWFLAKE_PUBLIC_DATA_FREE).
 
 custom_instructions: |
-  For macro / economy / inflation / Fed / unemployment / GDP / retail questions, use logical table economic_indicators (ECONOMIC_INDICATORS_WIDE).
-  For parent company, subsidiary, holding company, corporate structure, or "who owns whom" questions, use company_relationships (V_COMPANY_RELATIONSHIPS).
-  Do not join macro data to company relationships unless the user explicitly asks to combine domains and a shared key exists.
-  Default to US national context when the user does not specify geography for macro series.
-  Prefer monthly frequency for macro trends unless the user asks for quarterly, annual, or YoY.
-  Filter macro series on OBSERVATION_DATE; use OBSERVATION_YEAR or OBSERVATION_MONTH for rollups.
-  When a macro measure is NULL, treat it as missing — do not invent values.
-  Round displayed numbers to 2 decimal places unless the user asks for more precision.
-  For corporate rows, prefer filtering active relationships (RELATIONSHIP_END_DATE IS NULL) when the user asks for "current" structure, if end dates are populated.
+  Route questions to the correct logical table: unemployment (V_UNEMPLOYMENT), retail_sales (V_RETAIL_SALES),
+  interest_rates (V_INTEREST_RATES), industrial_production (V_INDUSTRIAL_PRODUCTION), company_relationships (V_COMPANY_RELATIONSHIPS).
+  Do not join across these tables unless the user explicitly asks and a valid key exists.
+  Macro time column is "DATE" on each V_* series view; use quoted "DATE" in SQL when ambiguity occurs.
+  Physical value columns are unemployment_rate, retail_sales, interest_rate, production_index — not VALUE.
+  Round outputs to 2 decimal places unless the user asks otherwise.
+  For company_relationships, names may appear in ALL CAPS; parent/subsidiary questions use company_relationships.
 
 tables:
-  - name: economic_indicators
-    description: |
-      Wide monthly (mostly) economic fact table at GEO_ID × OBSERVATION_DATE grain. Each column is a distinct indicator
-      from curated views on SNOWFLAKE_PUBLIC_DATA_FREE financial_economic_indicators_* tables.
-
+  - name: unemployment
+    description: >
+      Monthly US unemployment rates by series (VARIABLE_NAME), including demographic segments where present.
+      Sourced from BLS via curated view on Snowflake Public Data. Filter VARIABLE_NAME for overall vs segment.
     base_table:
       database: HACKATHON
       schema: DATA
-      table: ECONOMIC_INDICATORS_WIDE
-
+      table: V_UNEMPLOYMENT
     primary_key:
       columns:
         - GEO_ID
-        - OBSERVATION_DATE
-
-    time_dimensions:
-      - name: observation_date
-        synonyms: ["date", "day", "period", "when", "time", "as of", "calendar date"]
-        description: Calendar date of the observation; use for ranges, trends, and latest-available logic.
-        expr: OBSERVATION_DATE
-        data_type: date
-        unique: false
-
+        - DATE
+        - VARIABLE_NAME
     dimensions:
-      - name: geo_id
-        synonyms: ["geo", "fips", "geography", "region", "area", "location", "state", "country code"]
-        description: Geographic identifier for the series (e.g. US national or state FIPS-style codes from the source).
+      - name: indicator_name
+        description: The specific unemployment indicator including demographic segment.
+        expr: VARIABLE_NAME
+        data_type: text
+        synonyms:
+          - unemployment indicator
+          - jobless metric
+          - labor metric
+          - employment indicator
+      - name: geography
+        description: Geographic identifier (e.g. national / FIPS-style GEO_ID).
         expr: GEO_ID
         data_type: text
-        unique: false
-
-      - name: observation_year
-        synonyms: ["year", "calendar year", "annual", "Y", "in 2020", "2020"]
-        description: Calendar year extracted from OBSERVATION_DATE for annual rollups and filters.
-        expr: OBSERVATION_YEAR
-        data_type: number
-        unique: false
-
-      - name: observation_month
-        synonyms: ["month", "month start", "first of month", "by month", "monthly bucket"]
-        description: Month start timestamp (DATE_TRUNC month) for aligning monthly series.
-        expr: OBSERVATION_MONTH
+        synonyms:
+          - location
+          - region
+          - country
+          - geo
+      - name: unit
+        description: Unit of measurement for the value.
+        expr: UNIT
+        data_type: text
+    time_dimensions:
+      - name: date
+        description: Monthly observation date.
+        expr: DATE
         data_type: date
+        synonyms:
+          - month
+          - period
+          - time
         unique: false
-
     measures:
       - name: unemployment_rate
-        synonyms:
-          [
-            "jobless rate",
-            "unemployment",
-            "U-3",
-            "labor market",
-            "out of work",
-            "unemployed",
-            "jobs",
-          ]
-        description: Unemployment rate as a percent of the labor force (BLS-style series in curated view).
+        description: >
+          Unemployment rate for the row's indicator; aggregate with AVG for overall trend, filter VARIABLE_NAME for segments.
         expr: UNEMPLOYMENT_RATE
         data_type: number
         default_aggregation: avg
-        sample_values: [3.5, 4.0, 14.7, 6.0, 3.7]
-
-      - name: cpi
         synonyms:
-          [
-            "inflation",
-            "consumer price index",
-            "consumer price",
-            "cost of living",
-            "prices",
-            "CPI",
-            "price level",
-          ]
-        description: Consumer Price Index level (higher = higher price level vs index base over time).
-        expr: CPI
+          - unemployment
+          - jobless rate
+          - out of work rate
+          - labor market rate
+          - rate
+
+  - name: retail_sales
+    description: >
+      Monthly US retail sales by series (VARIABLE_NAME) and unit (USD vs percent change).
+      US Census Bureau, seasonally adjusted. Filter UNIT for dollar levels vs percent change.
+    base_table:
+      database: HACKATHON
+      schema: DATA
+      table: V_RETAIL_SALES
+    primary_key:
+      columns:
+        - GEO_ID
+        - DATE
+        - VARIABLE_NAME
+        - UNIT
+    dimensions:
+      - name: sales_category
+        description: Retail series name (category often embedded in VARIABLE_NAME).
+        expr: VARIABLE_NAME
+        data_type: text
+        synonyms:
+          - retail category
+          - store type
+          - category
+          - sector
+          - industry
+      - name: unit
+        description: USD (dollar value) or percent / rate change depending on series.
+        expr: UNIT
+        data_type: text
+        synonyms:
+          - measurement type
+          - value type
+      - name: geography
+        description: Geographic identifier.
+        expr: GEO_ID
+        data_type: text
+      - name: industry_group
+        description: Broader industry grouping from attributes when present.
+        expr: INDUSTRY
+        data_type: text
+        synonyms:
+          - industry category
+          - sector group
+    time_dimensions:
+      - name: date
+        description: Monthly observation date.
+        expr: DATE
+        data_type: date
+        synonyms:
+          - month
+          - period
+        unique: false
+    measures:
+      - name: retail_sales_value
+        description: Retail sales amount for the row; use SUM for totals, AVG for typical monthly level.
+        expr: RETAIL_SALES
         data_type: number
-        default_aggregation: avg
-        sample_values: [250, 260, 280, 296, 310]
-
-      - name: fed_funds_rate
+        default_aggregation: sum
         synonyms:
-          [
-            "federal funds rate",
-            "fed funds",
-            "fed rate",
-            "policy rate",
-            "benchmark rate",
-            "interest rate",
-            "FOMC rate",
-            "rate hikes",
-          ]
-        description: Short-term policy / effective Fed funds related rate from the wide table (Fed series).
-        expr: FED_FUNDS_RATE
-        data_type: number
-        default_aggregation: avg
-        sample_values: [0.08, 0.25, 2.5, 5.33]
-
-      - name: gdp
-        synonyms:
-          [
-            "gross domestic product",
-            "GDP",
-            "economic output",
-            "national output",
-            "economy size",
-            "real gdp",
-          ]
-        description: GDP level or index as provided by the source feed (frequency may be monthly/quarterly/annual in data).
-        expr: GDP
-        data_type: number
-        default_aggregation: avg
-
-      - name: retail_sales
-        synonyms:
-          [
-            "retail sales",
-            "retail",
-            "census retail",
-            "store sales",
-            "consumer spending at retail",
-          ]
-        description: Monthly retail sales indicator (Census retail series in curated view).
+          - sales
+          - revenue
+          - retail revenue
+          - sales volume
+          - consumer spending
+          - total sales
+      - name: avg_retail_sales
+        description: Average retail sales value (same column, AVG aggregation).
         expr: RETAIL_SALES
         data_type: number
         default_aggregation: avg
-
-      - name: industrial_production
         synonyms:
-          [
-            "industrial production",
-            "IP index",
-            "factory output",
-            "manufacturing production",
-            "Fed industrial production",
-          ]
-        description: Federal Reserve industrial production index.
-        expr: INDUSTRIAL_PRODUCTION
+          - average sales
+          - mean sales
+
+  - name: interest_rates
+    description: >
+      US interest-related series (Fed funds, Treasury, prime, etc.) from Federal Reserve.
+      Monthly and weekly rows possible; filter VARIABLE_NAME for the instrument.
+    base_table:
+      database: HACKATHON
+      schema: DATA
+      table: V_INTEREST_RATES
+    primary_key:
+      columns:
+        - GEO_ID
+        - DATE
+        - VARIABLE_NAME
+    dimensions:
+      - name: rate_type
+        description: Specific rate instrument (e.g. Treasury, federal funds, commercial paper).
+        expr: VARIABLE_NAME
+        data_type: text
+        synonyms:
+          - rate name
+          - instrument
+          - treasury type
+          - rate category
+      - name: release_name
+        description: Federal Reserve release name.
+        expr: RELEASE_NAME
+        data_type: text
+      - name: unit
+        description: Unit of measurement, typically percent.
+        expr: UNIT
+        data_type: text
+      - name: geography
+        description: Geographic identifier.
+        expr: GEO_ID
+        data_type: text
+    time_dimensions:
+      - name: date
+        description: Observation date (monthly or weekly series).
+        expr: DATE
+        data_type: date
+        synonyms:
+          - month
+          - week
+          - period
+        unique: false
+    measures:
+      - name: interest_rate
+        description: Interest rate as a percentage for the row's series.
+        expr: INTEREST_RATE
         data_type: number
         default_aggregation: avg
-
-      - name: treasury_10yr
         synonyms:
-          [
-            "10-year treasury",
-            "10 year yield",
-            "10Y treasury",
-            "long-term treasury yield",
-            "treasury yield",
-            "bond yield",
-          ]
-        description: Long-term Treasury yield where present in the wide table (10-year style series).
-        expr: TREASURY_10YR
+          - rate
+          - yield
+          - interest
+          - borrowing rate
+          - treasury rate
+          - fed rate
+          - benchmark rate
+
+  - name: industrial_production
+    description: >
+      Monthly US industrial production index by manufacturing series (VARIABLE_NAME).
+      Federal Reserve, seasonally adjusted.
+    base_table:
+      database: HACKATHON
+      schema: DATA
+      table: V_INDUSTRIAL_PRODUCTION
+    primary_key:
+      columns:
+        - GEO_ID
+        - DATE
+        - VARIABLE_NAME
+    dimensions:
+      - name: industry_name
+        description: Specific industrial sector series name.
+        expr: VARIABLE_NAME
+        data_type: text
+        synonyms:
+          - sector
+          - industry
+          - manufacturing sector
+          - production category
+          - industry type
+      - name: industry_group
+        description: Broader industry grouping from attributes.
+        expr: INDUSTRY
+        data_type: text
+        synonyms:
+          - industry category
+          - sector group
+      - name: geography
+        description: Geographic identifier.
+        expr: GEO_ID
+        data_type: text
+    time_dimensions:
+      - name: date
+        description: Monthly observation date.
+        expr: DATE
+        data_type: date
+        synonyms:
+          - month
+          - period
+        unique: false
+    measures:
+      - name: production_index
+        description: Industrial production index level for the series; higher = more output vs base.
+        expr: PRODUCTION_INDEX
         data_type: number
         default_aggregation: avg
-
-      - name: treasury_fed_spread
         synonyms:
-          ["yield curve", "10y minus fed", "term spread", "treasury spread", "rates spread"]
-        description: Simple spread between 10Y Treasury yield and Fed funds rate (rough policy vs long-rate comparison).
-        expr: TREASURY_10YR - FED_FUNDS_RATE
-        data_type: number
-        default_aggregation: avg
+          - production
+          - output
+          - manufacturing output
+          - production level
+          - industrial output
+          - index
 
   - name: company_relationships
-    description: |
-      Parent-direction company relationship edges from Finance & Economics public data, exposed as HACKATHON.DATA.V_COMPANY_RELATIONSHIPS.
-      One row per parent-related pair in the filtered extract; use for subsidiaries, holdings, and corporate hierarchy questions.
-
+    description: >
+      Corporate ownership relationships (parent → subsidiary) from Snowflake Public Data company graph.
+      View V_COMPANY_RELATIONSHIPS keeps parent-direction rows only. Company names may appear in ALL CAPS.
     base_table:
       database: HACKATHON
       schema: DATA
       table: V_COMPANY_RELATIONSHIPS
-
     primary_key:
       columns:
         - COMPANY_ID
         - RELATED_COMPANY_ID
         - RELATIONSHIP_START_DATE
-
     time_dimensions:
       - name: relationship_start_date
-        synonyms: ["start date", "effective date", "since", "from"]
-        description: Start date of the relationship edge.
+        description: Start date of the relationship.
         expr: RELATIONSHIP_START_DATE
         data_type: date
         unique: false
-
     dimensions:
-      - name: company_id
-        synonyms: ["parent company id", "company id", "firm id", "issuer id"]
-        description: Identifier for the company on the parent side of the relationship.
+      - name: parent_company_id
+        description: Parent company identifier.
         expr: COMPANY_ID
         data_type: text
-        unique: false
-
-      - name: company_name
-        synonyms: ["parent", "parent company", "holding company", "firm", "company"]
-        description: Name of the parent-side company.
+      - name: parent_company
+        description: Parent company name (often ALL CAPS).
         expr: COMPANY_NAME
         data_type: text
-        unique: false
-
-      - name: related_company_id
-        synonyms: ["subsidiary id", "child id", "related entity id"]
-        description: Identifier for the related company (e.g. subsidiary).
+        synonyms:
+          - owner
+          - parent
+          - holding company
+          - parent company
+          - company
+      - name: subsidiary_company_id
+        description: Related / subsidiary company identifier.
         expr: RELATED_COMPANY_ID
         data_type: text
-        unique: false
-
-      - name: related_company_name
-        synonyms: ["subsidiary", "child company", "division", "unit", "related entity"]
-        description: Name of the related company.
+      - name: subsidiary_company
+        description: Subsidiary company name.
         expr: RELATED_COMPANY_NAME
         data_type: text
-        unique: false
-
+        synonyms:
+          - subsidiary
+          - owned company
+          - child company
+          - brand
+          - division
       - name: entity_level
-        synonyms: ["reporting level", "hierarchy level", "level"]
-        description: Hierarchy level from the source graph.
+        description: Entity classification from source.
         expr: ENTITY_LEVEL
         data_type: text
-        unique: false
-
       - name: relationship_type
-        synonyms: ["relationship", "edge type", "link type"]
-        description: Relationship type; this view is restricted to parent-style rows.
+        description: Relationship type (view filtered to parent-style edges).
         expr: RELATIONSHIP_TYPE
         data_type: text
-        unique: false
-
       - name: relationship_end_date
-        synonyms: ["end date", "until", "terminated"]
-        description: End date when the relationship ended; may be null if ongoing.
+        description: End date if relationship ended; may be null.
         expr: RELATIONSHIP_END_DATE
         data_type: date
-        unique: false
-
     measures:
-      - name: relationship_row
-        synonyms: ["count", "edges", "links", "pairs"]
-        description: Constant 1 per row for counting relationship edges.
+      - name: relationship_edge
+        description: Constant 1 per row; SUM for counting edges in aggregations.
         expr: 1
         data_type: number
         default_aggregation: sum
+        synonyms:
+          - count
+          - subsidiaries
+          - edges
+          - links
 
 verified_queries:
-  - name: covid_peak_unemployment
-    question: What was the peak unemployment rate in 2020 and when did it occur?
+  - name: unemployment_trend_2020_2024
+    question: What is the US unemployment rate trend from 2020 to 2024?
     sql: |
-      SELECT OBSERVATION_DATE, UNEMPLOYMENT_RATE AS PEAK_UNEMPLOYMENT
-      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE OBSERVATION_YEAR = 2020
-        AND UNEMPLOYMENT_RATE IS NOT NULL
-      ORDER BY UNEMPLOYMENT_RATE DESC
-      LIMIT 1
+      SELECT "DATE", AVG(UNEMPLOYMENT_RATE) AS unemployment_rate
+      FROM HACKATHON.DATA.V_UNEMPLOYMENT
+      WHERE "DATE" BETWEEN '2020-01-01' AND '2024-12-31'
+        AND VARIABLE_NAME LIKE '%Unemployment Rate%'
+        AND VARIABLE_NAME NOT LIKE '%yrs%'
+        AND VARIABLE_NAME NOT LIKE '%, Men%'
+        AND VARIABLE_NAME NOT LIKE '%, Women%'
+      GROUP BY "DATE"
+      ORDER BY "DATE"
 
-  - name: unemployment_trend_since_2020
-    question: Show me the unemployment rate trend since 2020
-    sql: |
-      SELECT OBSERVATION_DATE, UNEMPLOYMENT_RATE
-      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE OBSERVATION_DATE >= '2020-01-01'
-        AND UNEMPLOYMENT_RATE IS NOT NULL
-      ORDER BY OBSERVATION_DATE
-
-  - name: retail_sales_since_covid
-    question: Show retail sales trend since COVID
-    sql: |
-      SELECT OBSERVATION_DATE, RETAIL_SALES
-      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE OBSERVATION_DATE >= '2020-03-01'
-        AND RETAIL_SALES IS NOT NULL
-      ORDER BY OBSERVATION_DATE
-
-  - name: fed_funds_2022
-    question: How did the Fed funds rate change during 2022?
-    sql: |
-      SELECT OBSERVATION_DATE, FED_FUNDS_RATE
-      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE OBSERVATION_YEAR = 2022
-        AND FED_FUNDS_RATE IS NOT NULL
-      ORDER BY OBSERVATION_DATE
-
-  - name: unemployment_and_cpi_since_2020
-    question: Compare unemployment and inflation since 2020
-    sql: |
-      SELECT OBSERVATION_DATE, UNEMPLOYMENT_RATE, CPI
-      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE OBSERVATION_DATE >= '2020-01-01'
-        AND (UNEMPLOYMENT_RATE IS NOT NULL OR CPI IS NOT NULL)
-      ORDER BY OBSERVATION_DATE
-
-  - name: latest_fed_funds
-    question: What is the current Fed funds rate?
-    sql: |
-      SELECT OBSERVATION_DATE, FED_FUNDS_RATE
-      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE FED_FUNDS_RATE IS NOT NULL
-      ORDER BY OBSERVATION_DATE DESC
-      LIMIT 1
-
-  - name: latest_unemployment
-    question: What is the current unemployment rate?
-    sql: |
-      SELECT OBSERVATION_DATE, UNEMPLOYMENT_RATE
-      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE UNEMPLOYMENT_RATE IS NOT NULL
-      ORDER BY OBSERVATION_DATE DESC
-      LIMIT 1
-
-  - name: industrial_production_trend
-    question: Show industrial production over the last 5 years
-    sql: |
-      SELECT OBSERVATION_DATE, INDUSTRIAL_PRODUCTION
-      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE OBSERVATION_DATE >= DATEADD(year, -5, CURRENT_DATE())
-        AND INDUSTRIAL_PRODUCTION IS NOT NULL
-      ORDER BY OBSERVATION_DATE
-
-  - name: gdp_trend_5y
-    question: Show GDP over the last 5 years
-    sql: |
-      SELECT OBSERVATION_DATE, GDP
-      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE OBSERVATION_DATE >= DATEADD(year, -5, CURRENT_DATE())
-        AND GDP IS NOT NULL
-      ORDER BY OBSERVATION_DATE
-
-  - name: ten_year_treasury_latest
-    question: What is the 10-year Treasury yield?
-    sql: |
-      SELECT OBSERVATION_DATE, TREASURY_10YR
-      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE TREASURY_10YR IS NOT NULL
-      ORDER BY OBSERVATION_DATE DESC
-      LIMIT 1
-
-  - name: key_indicators_2020
-    question: Show unemployment, CPI, Fed funds, and retail sales in 2020
+  - name: unemployment_men_vs_women_2022
+    question: How did unemployment differ between men and women in 2022?
     sql: |
       SELECT
-        OBSERVATION_DATE,
-        UNEMPLOYMENT_RATE,
-        CPI,
-        FED_FUNDS_RATE,
-        RETAIL_SALES
-      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE OBSERVATION_YEAR = 2020
-      ORDER BY OBSERVATION_DATE
+        "DATE",
+        AVG(CASE WHEN VARIABLE_NAME LIKE '%, Men,%' THEN UNEMPLOYMENT_RATE END) AS male_rate,
+        AVG(CASE WHEN VARIABLE_NAME LIKE '%, Women,%' THEN UNEMPLOYMENT_RATE END) AS female_rate
+      FROM HACKATHON.DATA.V_UNEMPLOYMENT
+      WHERE "DATE" BETWEEN '2022-01-01' AND '2022-12-31'
+        AND VARIABLE_NAME LIKE '%Unemployment Rate%'
+      GROUP BY "DATE"
+      ORDER BY "DATE"
 
-  - name: year_highest_unemployment
-    question: Which year had the highest average unemployment in the dataset?
+  - name: retail_top_categories_2023
+    question: What are the top retail sales categories by total value in 2023?
     sql: |
-      SELECT OBSERVATION_YEAR, AVG(UNEMPLOYMENT_RATE) AS AVG_UNEMPLOYMENT
-      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE UNEMPLOYMENT_RATE IS NOT NULL
-      GROUP BY OBSERVATION_YEAR
-      ORDER BY AVG_UNEMPLOYMENT DESC
-      LIMIT 1
+      SELECT VARIABLE_NAME AS category, SUM(RETAIL_SALES) AS total_sales
+      FROM HACKATHON.DATA.V_RETAIL_SALES
+      WHERE "DATE" BETWEEN '2023-01-01' AND '2023-12-31'
+        AND UNIT = 'USD'
+      GROUP BY VARIABLE_NAME
+      ORDER BY total_sales DESC
+      LIMIT 10
 
-  - name: fed_funds_and_cpi_correlation_window
-    question: Show Fed funds rate and CPI over the last 10 years
+  - name: retail_auto_trend_2019_2023
+    question: How did auto retail sales trend from 2019 to 2023?
     sql: |
-      SELECT OBSERVATION_DATE, FED_FUNDS_RATE, CPI
-      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE OBSERVATION_DATE >= DATEADD(year, -10, CURRENT_DATE())
-        AND (FED_FUNDS_RATE IS NOT NULL OR CPI IS NOT NULL)
-      ORDER BY OBSERVATION_DATE
+      SELECT "DATE", SUM(RETAIL_SALES) AS auto_sales
+      FROM HACKATHON.DATA.V_RETAIL_SALES
+      WHERE VARIABLE_NAME LIKE '%Auto and Other Motor Vehicles%'
+        AND UNIT = 'USD'
+        AND "DATE" BETWEEN '2019-01-01' AND '2023-12-31'
+      GROUP BY "DATE"
+      ORDER BY "DATE"
 
-  - name: company_list_parent_subsidiary_pairs
-    question: List parent companies and their related companies
+  - name: interest_treasury_bills_since_2020
+    question: How have Treasury bill rates changed since 2020?
     sql: |
-      SELECT COMPANY_NAME, RELATED_COMPANY_NAME, RELATIONSHIP_START_DATE, RELATIONSHIP_END_DATE
-      FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
-      ORDER BY COMPANY_NAME, RELATED_COMPANY_NAME
-      LIMIT 100
+      SELECT "DATE", AVG(INTEREST_RATE) AS avg_rate, VARIABLE_NAME AS rate_type
+      FROM HACKATHON.DATA.V_INTEREST_RATES
+      WHERE "DATE" >= '2020-01-01'
+        AND VARIABLE_NAME ILIKE '%Treasury bill%'
+        AND VARIABLE_NAME ILIKE '%Monthly%'
+      GROUP BY "DATE", VARIABLE_NAME
+      ORDER BY "DATE"
 
-  - name: company_count_parent_edges
-    question: How many parent company relationships are in the dataset?
+  - name: interest_treasury_2022_2023
+    question: What were interest rates doing during 2022 and 2023?
     sql: |
-      SELECT COUNT(*) AS PARENT_RELATIONSHIP_ROWS
-      FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
+      SELECT "DATE", AVG(INTEREST_RATE) AS avg_rate
+      FROM HACKATHON.DATA.V_INTEREST_RATES
+      WHERE "DATE" BETWEEN '2022-01-01' AND '2023-12-31'
+        AND VARIABLE_NAME ILIKE '%Treasury bill%'
+        AND VARIABLE_NAME ILIKE '%Monthly%'
+      GROUP BY "DATE"
+      ORDER BY "DATE"
 
-  - name: company_top_parents_by_subsidiaries
-    question: Which parent companies have the most subsidiaries?
+  - name: industrial_top_sectors_2023
+    question: Which industrial sectors had the highest production in 2023?
     sql: |
-      SELECT COMPANY_NAME, COUNT(*) AS SUBSIDIARY_COUNT
+      SELECT VARIABLE_NAME AS sector, AVG(PRODUCTION_INDEX) AS avg_production_index
+      FROM HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION
+      WHERE "DATE" BETWEEN '2023-01-01' AND '2023-12-31'
+      GROUP BY VARIABLE_NAME
+      ORDER BY avg_production_index DESC
+      LIMIT 10
+
+  - name: industrial_aerospace_2019_2023
+    question: How did aerospace production change from 2019 to 2023?
+    sql: |
+      SELECT "DATE", AVG(PRODUCTION_INDEX) AS production_index
+      FROM HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION
+      WHERE VARIABLE_NAME ILIKE '%Aerospace%'
+        AND "DATE" BETWEEN '2019-01-01' AND '2023-12-31'
+      GROUP BY "DATE"
+      ORDER BY "DATE"
+
+  - name: company_most_subsidiaries
+    question: Which company owns the most subsidiaries?
+    sql: |
+      SELECT COMPANY_NAME AS parent_company,
+             COUNT(RELATED_COMPANY_NAME) AS subsidiary_count
       FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
       GROUP BY COMPANY_NAME
-      ORDER BY SUBSIDIARY_COUNT DESC
+      ORDER BY subsidiary_count DESC
       LIMIT 15
