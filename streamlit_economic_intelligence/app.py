@@ -185,15 +185,6 @@ def _get_followups(question: str, df: pd.DataFrame) -> list[str]:
     ]
 
 
-def _clarifying_question(question: str, reason: str) -> str:
-    prompt = (
-        f"A finance BI app could not answer this question: '{question}'. Reason: {reason}. "
-        "Generate ONE specific clarifying question to help the user rephrase. "
-        "Return only the question."
-    )
-    return _complete_text(prompt) or "Could you specify the indicator and time range you want?"
-
-
 def generate_narrative(question: str, df: pd.DataFrame) -> str:
     if df.empty or "Error" in df.columns or session is None:
         return ""
@@ -381,8 +372,6 @@ if "last_result" not in st.session_state:
     st.session_state.last_result = None
 if "pending_question" not in st.session_state:
     st.session_state.pending_question = None
-if "clarifier" not in st.session_state:
-    st.session_state.clarifier = None
 if "exec_summary" not in st.session_state:
     st.session_state.exec_summary = ""
 
@@ -464,9 +453,6 @@ with right:
         _auto_chart(rec["df"])
         _confidence_ui(rec.get("confidence", 0.85))
 
-        if rec.get("confidence", 0.85) < 0.6 and rec.get("clarifier"):
-            st.warning(f"Low confidence: {rec['clarifier']}")
-
         if rec.get("narrative"):
             st.info(f"* Insight: {rec['narrative']}")
 
@@ -484,15 +470,6 @@ with right:
                 st.rerun()
     else:
         st.info("Ask a question to generate chart, confidence, narrative, SQL, and follow-up chips.")
-
-# Clarification UX
-if st.session_state.clarifier:
-    st.warning(f"I need clarification: {st.session_state.clarifier}")
-    refined = st.text_input("Your clarification")
-    if st.button("Try again", use_container_width=False) and refined.strip():
-        st.session_state.pending_question = refined.strip()
-        st.session_state.clarifier = None
-        st.rerun()
 
 # Input resolution
 final_question = None
@@ -522,7 +499,6 @@ if final_question:
                     "confidence": 0.0,
                 }
             )
-            st.session_state.clarifier = _clarifying_question(final_question, "Analyst API error")
             st.rerun()
 
         confidence = _extract_confidence(response)
@@ -535,8 +511,8 @@ if final_question:
                 interpretation = block.get("text", "")
 
         if not sql:
-            clarifier = _clarifying_question(final_question, "No SQL generated")
-            st.session_state.messages.append({"role": "assistant", "content": f"I need clarification: {clarifier}"})
+            msg = interpretation or "No SQL generated for this question."
+            st.session_state.messages.append({"role": "assistant", "content": msg})
             st.session_state.query_log.append(
                 {
                     "question": final_question,
@@ -545,7 +521,6 @@ if final_question:
                     "confidence": confidence,
                 }
             )
-            st.session_state.clarifier = clarifier
             st.rerun()
 
         df = run_sql(sql)
@@ -557,9 +532,8 @@ if final_question:
             )
 
         if df.empty or "Error" in df.columns:
-            reason = "SQL returned empty result" if df.empty else str(df.iloc[0, 0])
-            clarifier = _clarifying_question(final_question, reason)
-            st.session_state.messages.append({"role": "assistant", "content": f"I need clarification: {clarifier}"})
+            reason = "No rows returned." if df.empty else str(df.iloc[0, 0])
+            st.session_state.messages.append({"role": "assistant", "content": reason})
             st.session_state.query_log.append(
                 {
                     "question": final_question,
@@ -568,15 +542,10 @@ if final_question:
                     "confidence": confidence,
                 }
             )
-            st.session_state.clarifier = clarifier
             st.rerun()
 
         narrative = generate_narrative(final_question, df) or interpretation
         followups = _get_followups(final_question, df)
-        low_conf_clarifier = ""
-        if confidence < 0.6:
-            low_conf_clarifier = _clarifying_question(final_question, "Low confidence answer")
-
         rec = {
             "question": final_question,
             "sql": sql,
@@ -585,7 +554,6 @@ if final_question:
             "narrative": narrative,
             "followups": followups,
             "headline": _headline(df, final_question),
-            "clarifier": low_conf_clarifier,
         }
         st.session_state.last_result = rec
         st.session_state.records.append(rec)
@@ -603,5 +571,4 @@ if final_question:
                 "confidence": confidence,
             }
         )
-        st.session_state.clarifier = None
         st.rerun()
