@@ -10,7 +10,7 @@ import difflib
 import json
 import os
 import re
-import uuid
+from datetime import datetime
 from typing import Any
 
 import pandas as pd
@@ -430,6 +430,55 @@ def _loading_hint_for_turn() -> str:
     return LOADING_HINTS[n % len(LOADING_HINTS)]
 
 
+def _time_greeting() -> str:
+    h = datetime.now().hour
+    if h < 12:
+        return "Good morning."
+    if h < 17:
+        return "Good afternoon."
+    return "Good evening."
+
+
+def _render_welcome_hero() -> None:
+    if st.session_state.messages or st.session_state.get("welcome_hero_dismissed"):
+        return
+    g = html.escape(_time_greeting())
+    st.markdown(
+        f"""
+<div class="welcome-hero-shell">
+  <p class="welcome-hero-greeting">{g} Nice to see you.</p>
+  <p class="welcome-hero-title">Welcome to your Economic Intelligence workspace.</p>
+  <p class="welcome-hero-body">
+    Ask in plain English — unemployment, CPI, GDP, retail, rates, industrial production,
+    or how metrics line up on one timeline. Cortex Analyst turns it into SQL; you always get transparency and a chart when it fits.
+  </p>
+  <div class="welcome-hero-chips">
+    <span class="welcome-chip">8 semantic domains</span>
+    <span class="welcome-chip">Macro wide joins</span>
+    <span class="welcome-chip">Verified fallbacks</span>
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+    if st.button("Skip intro — show metrics", key="dismiss_welcome_hero"):
+        st.session_state.welcome_hero_dismissed = True
+        st.rerun()
+
+
+def _render_welcome_back_strip() -> None:
+    if not st.session_state.messages:
+        return
+    st.markdown(
+        """
+<div class="welcome-back-strip">
+  <strong>Welcome back.</strong> Your latest answer is on the right — keep asking; charts refresh as we go.
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 # ── page ──────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="US Economic Intelligence",
@@ -589,6 +638,97 @@ st.markdown(
     background: linear-gradient(90deg, transparent, rgba(255,255,255,0.9) 20%, rgba(255,255,255,0.9) 80%, transparent);
     background-size: 200% 100%;
     animation: analyst-shimmer 4s ease-in-out infinite;
+}
+@keyframes welcome-hero-in {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@keyframes welcome-line-in {
+    from { opacity: 0; transform: translateX(-8px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+@keyframes welcome-gradient-shift {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+}
+.welcome-hero-shell {
+    border-radius: 18px;
+    padding: 22px 26px 20px 26px;
+    margin-bottom: 18px;
+    background: linear-gradient(135deg, #f8fbff 0%, #eef6ff 45%, #e8f8fa 100%);
+    background-size: 200% 200%;
+    animation: welcome-hero-in 0.75s ease-out both, welcome-gradient-shift 10s ease-in-out infinite;
+    border: 1px solid rgba(21, 101, 192, 0.14);
+    box-shadow: 0 10px 40px rgba(13, 71, 161, 0.08);
+}
+.welcome-hero-greeting {
+    font-size: 15px;
+    font-weight: 600;
+    color: #00838f;
+    margin: 0 0 6px 0;
+    animation: welcome-line-in 0.55s ease-out 0.1s both;
+}
+.welcome-hero-title {
+    font-size: 22px;
+    font-weight: 800;
+    line-height: 1.3;
+    margin: 0 0 10px 0;
+    background: linear-gradient(110deg, #0d47a1 0%, #1565c0 40%, #006064 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: welcome-line-in 0.6s ease-out 0.22s both;
+}
+.welcome-hero-body {
+    font-size: 14px;
+    color: #4a5568;
+    line-height: 1.55;
+    margin: 0 0 14px 0;
+    max-width: 720px;
+    animation: welcome-line-in 0.6s ease-out 0.35s both;
+}
+.welcome-hero-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    animation: welcome-line-in 0.55s ease-out 0.48s both;
+}
+.welcome-chip {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.85);
+    border: 1px solid rgba(21, 101, 192, 0.15);
+    color: #1565c0;
+}
+@keyframes welcome-back-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.welcome-back-strip {
+    animation: welcome-back-in 0.5s ease-out both;
+    border-radius: 12px;
+    padding: 10px 16px;
+    margin-bottom: 14px;
+    background: linear-gradient(90deg, rgba(0,131,143,0.08), rgba(21,101,192,0.08));
+    border: 1px solid rgba(0, 131, 143, 0.18);
+    font-size: 14px;
+    color: #1a365d;
+    font-weight: 500;
+}
+@keyframes chart-reveal-pop {
+    0% { opacity: 0; transform: translateY(14px) scale(0.985); filter: blur(2px); }
+    100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+div[data-testid="stVegaLiteChart"],
+div[data-testid="stArrowVegaLiteChart"],
+div[data-testid*="VegaLiteChart"],
+div[data-testid="stPlotlyChart"] {
+    animation: chart-reveal-pop 0.75s cubic-bezier(0.22, 1, 0.36, 1) both !important;
+}
+div[data-testid="stDataFrame"] {
+    animation: chart-reveal-pop 0.55s ease-out both !important;
 }
 </style>
 """,
@@ -777,6 +917,8 @@ if "pending_question" not in st.session_state:
     st.session_state.pending_question = None
 if "last_followups" not in st.session_state:
     st.session_state.last_followups = []
+if "welcome_hero_dismissed" not in st.session_state:
+    st.session_state.welcome_hero_dismissed = False
 
 # ══════════════════════════════════════════════════════════════════════════
 #  LAYOUT
@@ -796,6 +938,9 @@ st.markdown(
     "ownership — Cortex Analyst + verified SQL fallbacks.</div>",
     unsafe_allow_html=True,
 )
+
+_render_welcome_hero()
+_render_welcome_back_strip()
 
 m1, m2, m3, m4 = st.columns(4)
 with m1:
