@@ -19,7 +19,10 @@ Core data objects:
 - `HACKATHON.DATA.V_RETAIL_SALES`
 - `HACKATHON.DATA.V_INTEREST_RATES`
 - `HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION`
+- `HACKATHON.DATA.V_CPI` — headline CPI-U all items SA (BLS)
+- `HACKATHON.DATA.V_GDP` — quarterly real GDP SAAR (BEA)
 - `HACKATHON.DATA.V_COMPANY_RELATIONSHIPS`
+- `HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE` — curated macro panel (one row per `GEO_ID` + `OBSERVATION_DATE`) for multi-indicator comparisons; semantic logical table **`macro_wide`**
 - Semantic model on stage: `@HACKATHON.DATA.SEMANTIC_MODELS/semantic_model.yaml`
 
 ## 2) Component responsibilities
@@ -48,11 +51,15 @@ Cortex semantic contract:
 - custom routing instructions,
 - verified query examples for key ask patterns.
 
-This file strongly influences how Analyst maps text to SQL.
+This file strongly influences how Analyst maps text to SQL. The **`macro_wide`** logical table maps to `ECONOMIC_INDICATORS_WIDE` for join-style questions across measures on the same timeline.
 
 ### `hackathon/economic_indicators_views.sql`
 
-Creates source views used by both Analyst and fallback SQL.
+Creates granular source views used by Analyst and fallback SQL, including **`V_CPI`** (BLS headline CPI-U) and **`V_GDP`** (BEA quarterly real GDP).
+
+### `hackathon/sql/02_economic_indicators_wide.sql`
+
+Builds `ECONOMIC_INDICATORS_WIDE` by aggregating each `V_*` domain to a consistent grain, plus CPI/GDP from Public Data, for verified compare-over-time queries.
 
 ### `hackathon/sql/03_semantic_stage.sql`
 
@@ -147,6 +154,7 @@ The router currently covers high-frequency failure classes such as:
 
 1. Run setup SQL:
    - `hackathon/economic_indicators_views.sql`
+   - `hackathon/sql/02_economic_indicators_wide.sql`
    - `hackathon/sql/03_semantic_stage.sql`
 2. Upload semantic model:
 
@@ -164,4 +172,34 @@ PUT file://semantic_model.yaml @HACKATHON.DATA.SEMANTIC_MODELS
 - Prefer semantic-model improvements over adding new hardcoded routes.
 - Add fallback routes only for mission-critical prompts with repeated failures.
 - Track failures and convert repeated ones into semantic verified queries first.
+
+## 9) Operational validation and NL test log
+
+Use this checklist after creating views, uploading the semantic YAML, and deploying the Streamlit app.
+
+### Data and stage
+
+1. **Views exist:** `SHOW VIEWS IN SCHEMA HACKATHON.DATA;` — expect `V_UNEMPLOYMENT`, `V_RETAIL_SALES`, `V_INTEREST_RATES`, `V_INDUSTRIAL_PRODUCTION`, `V_CPI`, `V_GDP`, `V_COMPANY_RELATIONSHIPS`, and `ECONOMIC_INDICATORS_WIDE`.
+2. **Row counts (non-zero):** run `SELECT COUNT(*) FROM HACKATHON.DATA.<view>;` for each view above.
+3. **Semantic file on stage:** `LIST @HACKATHON.DATA.SEMANTIC_MODELS;` includes `semantic_model.yaml` (and matches the file you intend to test).
+
+### Golden NL smoke tests
+
+In Analyst or the app, run a short set before demos:
+
+- Latest or trend **unemployment** (2019+).
+- **Retail** USD trend since 2020 or top categories in 2023.
+- **Interest** rates in 2022–2023 (Treasury bill monthly pattern).
+- **Industrial production** sector or time trend.
+- **CPI / GDP:** e.g. “peak YoY CPI inflation in 2022” or “real GDP by quarter last five years” (`cpi` / `gdp` logical tables).
+- **Macro wide:** e.g. “Compare unemployment and industrial production since 2020” or “unemployment vs CPI on the same timeline” (`macro_wide` / `ECONOMIC_INDICATORS_WIDE`).
+- **Company graph:** top parents by subsidiary count or one named parent’s subsidiaries.
+
+### Full rubric log
+
+Documented questions with expected **pass** / **partial** / **fail** and schema alignment: `hackathon/QUERY_LOG.md`. Re-run those prompts in your account after each YAML change and adjust the log if needed.
+
+### Modeling narrative
+
+See `hackathon/notebooks/Economic_Modeling_Decisions.ipynb` for why the model uses five logical tables, how joins are scoped, and how iteration (YAML vs Streamlit fallbacks) works.
 

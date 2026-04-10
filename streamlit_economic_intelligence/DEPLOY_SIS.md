@@ -7,8 +7,8 @@ Follow this in order. Official reference: [Create your Streamlit app](https://do
 Run in a worksheet as a role that can create objects in `HACKATHON` and read `SNOWFLAKE_PUBLIC_DATA_FREE`:
 
 1. `hackathon/economic_indicators_views.sql`
-2. `hackathon/sql/03_semantic_stage.sql`
-3. *(Optional)* `hackathon/sql/02_economic_indicators_wide.sql` — only for Streamlit **header** KPIs in `app.py` (`ECONOMIC_INDICATORS_WIDE`). The Cortex **YAML** uses granular `V_*` views only.
+2. `hackathon/sql/02_economic_indicators_wide.sql` — creates `ECONOMIC_INDICATORS_WIDE` (shared `GEO_ID` + `OBSERVATION_DATE` panel). Required for the semantic **`macro_wide`** logical table and verified “compare X and Y over time” queries; optional for any Streamlit header KPIs you add against this view.
+3. `hackathon/sql/03_semantic_stage.sql`
 
 Upload the semantic model to the stage (adjust path to your local file or use **Data → Stages → Upload**):
 
@@ -24,8 +24,9 @@ Confirm:
 ```sql
 LIST @HACKATHON.DATA.SEMANTIC_MODELS;
 SELECT COUNT(*) FROM HACKATHON.DATA.V_UNEMPLOYMENT;
--- If you created the wide view for Streamlit header cards:
--- SELECT COUNT(*) FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE;
+SELECT COUNT(*) FROM HACKATHON.DATA.V_CPI;
+SELECT COUNT(*) FROM HACKATHON.DATA.V_GDP;
+SELECT COUNT(*) FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE;
 ```
 
 ## 2. Create the Streamlit app in Snowsight

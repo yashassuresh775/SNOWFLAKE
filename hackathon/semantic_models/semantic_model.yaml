@@ -1,18 +1,28 @@
-# Cortex Analyst - US economic intelligence (granular views + company graph)
-# Views: hackathon/economic_indicators_views.sql  |  PUT → @HACKATHON.DATA.SEMANTIC_MODELS/semantic_model.yaml
+# Cortex Analyst - US economic intelligence (granular views + macro wide panel + company graph)
+# Views: hackathon/economic_indicators_views.sql + hackathon/sql/02_economic_indicators_wide.sql
+# PUT → @HACKATHON.DATA.SEMANTIC_MODELS/semantic_model.yaml
 
 name: us_economic_intelligence
 description: >
   US economic intelligence assistant covering unemployment trends, retail sales, interest rates,
-  industrial production, and corporate ownership relationships. Data sourced from Bureau of Labor Statistics,
-  US Census Bureau, Federal Reserve, and Snowflake Public Data company graph.
+  industrial production, headline CPI and GDP series, a pre-joined macro wide panel for multi-indicator time comparisons,
+  and corporate ownership relationships. Data sourced from Bureau of Labor Statistics, US Census Bureau, Federal Reserve,
+  Bureau of Economic Analysis, and Snowflake Public Data company graph.
 
 custom_instructions: |
   Route questions to the correct logical table: unemployment (V_UNEMPLOYMENT), retail_sales (V_RETAIL_SALES),
-  interest_rates (V_INTEREST_RATES), industrial_production (V_INDUSTRIAL_PRODUCTION), company_relationships (V_COMPANY_RELATIONSHIPS).
-  Do not join across these tables unless the user explicitly asks and a valid key exists.
-  Macro time column is DATE on each V_* series view.
-  Physical value columns are unemployment_rate, retail_sales, interest_rate, production_index, not VALUE.
+  interest_rates (V_INTEREST_RATES), industrial_production (V_INDUSTRIAL_PRODUCTION), cpi (V_CPI), gdp (V_GDP),
+  macro_wide (ECONOMIC_INDICATORS_WIDE), company_relationships (V_COMPANY_RELATIONSHIPS).
+  CPI and inflation (consumer prices, CPI-U, headline inflation, all-items CPI) map to cpi (V_CPI). Gross domestic product,
+  quarterly GDP, economic output in billions map to gdp (V_GDP). Use granular tables for sector-specific retail or industrial
+  series (VARIABLE_NAME filters). Use macro_wide when the user compares two or more macro indicators on the same timeline
+  (e.g. unemployment vs CPI, unemployment vs industrial production, GDP vs unemployment, Fed funds vs retail). Shared keys are
+  GEO_ID and OBSERVATION_DATE; quarterly GDP aligns on quarter-end dates so monthly columns may be NULL on non-quarter months.
+  Do not join granular V_* tables to each other unless the user explicitly asks and a valid key exists; prefer macro_wide for multi-macro-over-time.
+  Macro time column is DATE on each V_* series view; macro_wide uses OBSERVATION_DATE.
+  Physical value columns on granular views are unemployment_rate, retail_sales, interest_rate, production_index, cpi_index,
+  gdp_value, not VALUE.
+  On macro_wide use UNEMPLOYMENT_RATE, RETAIL_SALES, FED_FUNDS_RATE, TREASURY_10YR, INDUSTRIAL_PRODUCTION, CPI, GDP (may be null).
   Round outputs to 2 decimal places unless the user asks otherwise.
   For company_relationships, names may appear in ALL CAPS; parent/subsidiary questions use company_relationships.
   Company SQL rules: Query HACKATHON.DATA.V_COMPANY_RELATIONSHIPS in one level when possible. The view exposes COMPANY_NAME (parent)
@@ -275,6 +285,208 @@ tables:
           - IP index
           - Fed production index
 
+  - name: cpi
+    description: >
+      Monthly US headline Consumer Price Index for All Urban Consumers, all items, seasonally adjusted (BLS via curated view).
+      One primary series per geo and month in typical listings; use for inflation, CPI levels, and year-over-year change questions.
+    base_table:
+      database: HACKATHON
+      schema: DATA
+      table: V_CPI
+    dimensions:
+      - name: series_name
+        description: BLS series title for the CPI row.
+        expr: VARIABLE_NAME
+        data_type: text
+        synonyms:
+          - CPI series
+          - inflation series
+      - name: geography
+        description: Geographic identifier.
+        expr: GEO_ID
+        data_type: text
+      - name: unit
+        description: Index unit from source metadata.
+        expr: UNIT
+        data_type: text
+      - name: frequency
+        description: Observation frequency (monthly).
+        expr: FREQUENCY
+        data_type: text
+    time_dimensions:
+      - name: date
+        description: Monthly CPI observation date.
+        expr: DATE
+        data_type: date
+        synonyms:
+          - month
+          - period
+          - time
+    measures:
+      - name: cpi_index
+        description: Consumer price index level; use LAG(..., 12) for year-over-year percent inflation vs prior year same month.
+        expr: CPI_INDEX
+        data_type: number
+        default_aggregation: avg
+        synonyms:
+          - CPI
+          - consumer price index
+          - inflation index
+          - price level
+          - headline CPI
+
+  - name: gdp
+    description: >
+      Quarterly US real gross domestic product (BEA), seasonally adjusted annual rate, chained dollars — headline total
+      (not per capita). Use for GDP trend, quarterly output, and growth context; frequency is quarterly.
+    base_table:
+      database: HACKATHON
+      schema: DATA
+      table: V_GDP
+    dimensions:
+      - name: series_name
+        description: BEA series title for the GDP row.
+        expr: VARIABLE_NAME
+        data_type: text
+        synonyms:
+          - GDP series
+          - national accounts line
+      - name: geography
+        description: Geographic identifier.
+        expr: GEO_ID
+        data_type: text
+      - name: unit
+        description: Unit (e.g. billions of chained dollars).
+        expr: UNIT
+        data_type: text
+      - name: frequency
+        description: Quarterly for this view.
+        expr: FREQUENCY
+        data_type: text
+        synonyms:
+          - quarter
+          - quarterly
+    time_dimensions:
+      - name: date
+        description: Quarter observation date from BEA release.
+        expr: DATE
+        data_type: date
+        synonyms:
+          - quarter end
+          - period
+          - time
+    measures:
+      - name: gdp_value
+        description: Real GDP level in the units given by UNIT (typically billions, annualized rate).
+        expr: GDP_VALUE
+        data_type: number
+        default_aggregation: avg
+        synonyms:
+          - GDP
+          - gross domestic product
+          - output
+          - economic output
+
+  - name: macro_wide
+    description: >
+      Curated US macro panel: one row per GEO_ID and OBSERVATION_DATE joining headline unemployment (excludes simple demographic splits),
+      total retail sales (sum of USD series), average federal funds and 10-year Treasury rates, average industrial production index,
+      and CPI/GDP from V_CPI and V_GDP. Use for comparing multiple indicators over the same periods.
+      Not for ranking retail categories or filtering a single industrial sub-sector—use retail_sales or industrial_production instead.
+    base_table:
+      database: HACKATHON
+      schema: DATA
+      table: ECONOMIC_INDICATORS_WIDE
+    dimensions:
+      - name: geography
+        description: Geographic identifier aligned across measures.
+        expr: GEO_ID
+        data_type: text
+        synonyms:
+          - geo
+          - region
+          - country code
+      - name: observation_year
+        description: Calendar year of the observation.
+        expr: OBSERVATION_YEAR
+        data_type: number
+      - name: observation_month
+        description: First day of the calendar month for the observation.
+        expr: OBSERVATION_MONTH
+        data_type: date
+    time_dimensions:
+      - name: observation_date
+        description: >
+          Monthly (or finest available) observation date; common time key for all measures in this row.
+        expr: OBSERVATION_DATE
+        data_type: date
+        synonyms:
+          - date
+          - month
+          - period
+          - time
+    measures:
+      - name: unemployment_rate
+        description: Headline US unemployment rate percent for the row (aggregated across matching BLS series).
+        expr: UNEMPLOYMENT_RATE
+        data_type: number
+        default_aggregation: avg
+        synonyms:
+          - jobless rate
+          - unemployment
+      - name: retail_sales_total
+        description: Sum of USD retail sales across categories for the geo and date.
+        expr: RETAIL_SALES
+        data_type: number
+        default_aggregation: sum
+        synonyms:
+          - retail sales
+          - consumer spending
+          - total retail
+      - name: fed_funds_rate
+        description: Average federal funds rate for the date when series exist.
+        expr: FED_FUNDS_RATE
+        data_type: number
+        default_aggregation: avg
+        synonyms:
+          - fed funds
+          - policy rate
+      - name: treasury_10yr_yield
+        description: Average 10-year Treasury yield for the date when matched series exist.
+        expr: TREASURY_10YR
+        data_type: number
+        default_aggregation: avg
+        synonyms:
+          - 10 year treasury
+          - ten year yield
+          - long rate
+      - name: industrial_production_index
+        description: Average industrial production index across Fed series for the geo and date (broad proxy).
+        expr: INDUSTRIAL_PRODUCTION
+        data_type: number
+        default_aggregation: avg
+        synonyms:
+          - industrial production
+          - IP index
+          - manufacturing output
+      - name: cpi_level
+        description: Headline CPI-U all-items index from V_CPI (same monthly grain as cpi logical table).
+        expr: CPI
+        data_type: number
+        default_aggregation: avg
+        synonyms:
+          - CPI
+          - consumer prices
+          - inflation index
+      - name: gdp_level
+        description: Headline quarterly real GDP from V_GDP; present on quarter-end observation dates in the spine.
+        expr: GDP
+        data_type: number
+        default_aggregation: avg
+        synonyms:
+          - GDP
+          - gross domestic product
+
   - name: company_relationships
     description: >
       Corporate ownership: each row is one parent-to-subsidiary edge. Columns include COMPANY_NAME (parent), RELATED_COMPANY_NAME
@@ -518,6 +730,55 @@ verified_queries:
       WHERE mom_growth_pct IS NOT NULL
       GROUP BY 1
       ORDER BY 1
+
+  - question: "Compare unemployment and industrial production over time since 2020."
+    sql: |
+      SELECT
+        OBSERVATION_DATE,
+        UNEMPLOYMENT_RATE,
+        INDUSTRIAL_PRODUCTION
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE OBSERVATION_DATE >= '2020-01-01'
+      ORDER BY OBSERVATION_DATE
+
+  - question: "Compare unemployment and CPI on the same monthly timeline since 2020."
+    sql: |
+      SELECT
+        OBSERVATION_DATE,
+        UNEMPLOYMENT_RATE,
+        CPI
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE OBSERVATION_DATE >= '2020-01-01'
+      ORDER BY OBSERVATION_DATE
+
+  - question: "Show monthly headline CPI index from 2019 through 2024."
+    sql: |
+      SELECT "DATE", CPI_INDEX, VARIABLE_NAME
+      FROM HACKATHON.DATA.V_CPI
+      WHERE "DATE" BETWEEN '2019-01-01' AND '2024-12-31'
+      ORDER BY "DATE"
+
+  - question: "What was the peak year-over-year headline CPI inflation rate in 2022?"
+    sql: |
+      WITH m AS (
+        SELECT
+          "DATE",
+          CPI_INDEX AS cpi,
+          LAG(CPI_INDEX, 12) OVER (PARTITION BY GEO_ID ORDER BY "DATE") AS cpi_prior_year
+        FROM HACKATHON.DATA.V_CPI
+      )
+      SELECT
+        ROUND(MAX(100 * (cpi - cpi_prior_year) / NULLIF(cpi_prior_year, 0)), 2) AS peak_yoy_inflation_pct_2022
+      FROM m
+      WHERE YEAR("DATE") = 2022
+        AND cpi_prior_year IS NOT NULL
+
+  - question: "Show US real GDP by quarter for the last five years."
+    sql: |
+      SELECT "DATE", GDP_VALUE, UNIT, VARIABLE_NAME, FREQUENCY
+      FROM HACKATHON.DATA.V_GDP
+      WHERE "DATE" >= DATEADD(year, -5, CURRENT_DATE())
+      ORDER BY "DATE"
 
   - question: "Compare average month-over-month retail sales growth before and after the 2022 Fed hike cycle, and include the number of months in each period."
     sql: |
