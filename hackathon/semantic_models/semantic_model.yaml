@@ -1,4 +1,4 @@
-# Cortex Analyst — US economic intelligence (granular views + company graph)
+# Cortex Analyst - US economic intelligence (granular views + company graph)
 # Views: hackathon/economic_indicators_views.sql  |  PUT → @HACKATHON.DATA.SEMANTIC_MODELS/semantic_model.yaml
 
 name: us_economic_intelligence
@@ -12,7 +12,7 @@ custom_instructions: |
   interest_rates (V_INTEREST_RATES), industrial_production (V_INDUSTRIAL_PRODUCTION), company_relationships (V_COMPANY_RELATIONSHIPS).
   Do not join across these tables unless the user explicitly asks and a valid key exists.
   Macro time column is DATE on each V_* series view.
-  Physical value columns are unemployment_rate, retail_sales, interest_rate, production_index — not VALUE.
+  Physical value columns are unemployment_rate, retail_sales, interest_rate, production_index, not VALUE.
   Round outputs to 2 decimal places unless the user asks otherwise.
   For company_relationships, names may appear in ALL CAPS; parent/subsidiary questions use company_relationships.
 
@@ -33,7 +33,7 @@ tables:
     dimensions:
       - name: indicator_name
         description: The specific unemployment indicator including demographic segment.
-        expr: "VARIABLE_NAME"
+        expr: VARIABLE_NAME
         data_type: text
         synonyms:
           - unemployment indicator
@@ -42,7 +42,7 @@ tables:
           - employment indicator
       - name: geography
         description: Geographic identifier.
-        expr: "GEO_ID"
+        expr: GEO_ID
         data_type: text
         synonyms:
           - location
@@ -51,12 +51,12 @@ tables:
           - geo
       - name: unit
         description: Unit of measurement for the value.
-        expr: "UNIT"
+        expr: UNIT
         data_type: text
     time_dimensions:
       - name: date
         description: Monthly observation date.
-        expr: "DATE"
+        expr: DATE
         data_type: date
         synonyms:
           - month
@@ -67,7 +67,7 @@ tables:
         description: >
           Unemployment rate for the row's indicator. Aggregate with AVG for overall trend,
           filter VARIABLE_NAME for demographic segments.
-        expr: "UNEMPLOYMENT_RATE"
+        expr: UNEMPLOYMENT_RATE
         data_type: number
         default_aggregation: avg
         synonyms:
@@ -94,7 +94,7 @@ tables:
     dimensions:
       - name: sales_category
         description: Retail series name with category embedded in VARIABLE_NAME.
-        expr: "VARIABLE_NAME"
+        expr: VARIABLE_NAME
         data_type: text
         synonyms:
           - retail category
@@ -104,18 +104,18 @@ tables:
           - industry
       - name: unit
         description: USD (dollar value) or percent change depending on series.
-        expr: "UNIT"
+        expr: UNIT
         data_type: text
         synonyms:
           - measurement type
           - value type
       - name: geography
         description: Geographic identifier.
-        expr: "GEO_ID"
+        expr: GEO_ID
         data_type: text
       - name: industry_group
         description: Broader industry grouping from attributes.
-        expr: "INDUSTRY"
+        expr: INDUSTRY
         data_type: text
         synonyms:
           - industry category
@@ -123,7 +123,7 @@ tables:
     time_dimensions:
       - name: date
         description: Monthly observation date.
-        expr: "DATE"
+        expr: DATE
         data_type: date
         synonyms:
           - month
@@ -132,7 +132,7 @@ tables:
       - name: retail_sales_value
         description: >
           Retail sales amount for the row. Use SUM for totals, AVG for typical monthly level.
-        expr: "RETAIL_SALES"
+        expr: RETAIL_SALES
         data_type: number
         default_aggregation: sum
         synonyms:
@@ -144,7 +144,7 @@ tables:
           - total sales
       - name: avg_retail_sales
         description: Average retail sales value.
-        expr: "RETAIL_SALES"
+        expr: RETAIL_SALES
         data_type: number
         default_aggregation: avg
         synonyms:
@@ -167,7 +167,7 @@ tables:
     dimensions:
       - name: rate_type
         description: Specific rate instrument such as Treasury bill or commercial paper.
-        expr: "VARIABLE_NAME"
+        expr: VARIABLE_NAME
         data_type: text
         synonyms:
           - rate name
@@ -176,20 +176,20 @@ tables:
           - rate category
       - name: release_name
         description: Federal Reserve release name.
-        expr: "RELEASE_NAME"
+        expr: RELEASE_NAME
         data_type: text
       - name: unit
         description: Unit of measurement, typically percent.
-        expr: "UNIT"
+        expr: UNIT
         data_type: text
       - name: geography
         description: Geographic identifier.
-        expr: "GEO_ID"
+        expr: GEO_ID
         data_type: text
     time_dimensions:
       - name: date
         description: Observation date, monthly or weekly series.
-        expr: "DATE"
+        expr: DATE
         data_type: date
         synonyms:
           - month
@@ -198,7 +198,7 @@ tables:
     measures:
       - name: interest_rate
         description: Interest rate as a percentage for the row's series.
-        expr: "INTEREST_RATE"
+        expr: INTEREST_RATE
         data_type: number
         default_aggregation: avg
         synonyms:
@@ -226,7 +226,7 @@ tables:
     dimensions:
       - name: industry_name
         description: Specific industrial sector series name.
-        expr: "VARIABLE_NAME"
+        expr: VARIABLE_NAME
         data_type: text
         synonyms:
           - sector
@@ -236,19 +236,19 @@ tables:
           - industry type
       - name: industry_group
         description: Broader industry grouping from attributes.
-        expr: "INDUSTRY"
+        expr: INDUSTRY
         data_type: text
         synonyms:
           - industry category
           - sector group
       - name: geography
         description: Geographic identifier.
-        expr: "GEO_ID"
+        expr: GEO_ID
         data_type: text
     time_dimensions:
       - name: date
         description: Monthly observation date.
-        expr: "DATE"
+        expr: DATE
         data_type: date
         synonyms:
           - month
@@ -258,7 +258,7 @@ tables:
         description: >
           Industrial production index level for the series.
           Higher values mean greater output relative to the base year.
-        expr: "PRODUCTION_INDEX"
+        expr: PRODUCTION_INDEX
         data_type: number
         default_aggregation: avg
         synonyms:
@@ -286,11 +286,11 @@ tables:
     dimensions:
       - name: parent_company_id
         description: Parent company unique identifier.
-        expr: "COMPANY_ID"
+        expr: COMPANY_ID
         data_type: text
       - name: parent_company
         description: Parent company name in ALL CAPS e.g. KROGER CO, MARRIOTT INTERNATIONAL INC /MD/
-        expr: "COMPANY_NAME"
+        expr: COMPANY_NAME
         data_type: text
         synonyms:
           - owner
@@ -300,11 +300,11 @@ tables:
           - company
       - name: subsidiary_company_id
         description: Subsidiary company unique identifier.
-        expr: "RELATED_COMPANY_ID"
+        expr: RELATED_COMPANY_ID
         data_type: text
       - name: subsidiary_company
         description: Subsidiary company name in ALL CAPS.
-        expr: "RELATED_COMPANY_NAME"
+        expr: RELATED_COMPANY_NAME
         data_type: text
         synonyms:
           - subsidiary
@@ -314,27 +314,27 @@ tables:
           - division
       - name: entity_level
         description: Entity classification from source, typically Corporate.
-        expr: "ENTITY_LEVEL"
+        expr: ENTITY_LEVEL
         data_type: text
       - name: relationship_type
         description: Relationship type, view filtered to Parent edges only.
-        expr: "RELATIONSHIP_TYPE"
+        expr: RELATIONSHIP_TYPE
         data_type: text
       - name: relationship_end_date
         description: End date if relationship ended, may be null.
-        expr: "RELATIONSHIP_END_DATE"
+        expr: RELATIONSHIP_END_DATE
         data_type: date
     time_dimensions:
       - name: relationship_start_date
         description: Start date of the parent-subsidiary relationship.
-        expr: "RELATIONSHIP_START_DATE"
+        expr: RELATIONSHIP_START_DATE
         data_type: date
     measures:
       - name: subsidiary_count
         description: Count of subsidiaries owned by a parent company.
-        expr: "COUNT(RELATED_COMPANY_NAME)"
+        expr: RELATED_COMPANY_ID
         data_type: number
-        default_aggregation: sum
+        default_aggregation: count
         synonyms:
           - number of subsidiaries
           - number of owned companies
