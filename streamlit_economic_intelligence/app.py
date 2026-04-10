@@ -6,6 +6,7 @@ Cortex Analyst (semantic YAML) + Cortex COMPLETE narratives. No Plotly (native S
 from __future__ import annotations
 
 import html
+import json
 import os
 import uuid
 from typing import Any
@@ -91,27 +92,22 @@ def _connection_auth():
 
 
 def call_cortex_analyst(question: str, history: list[dict[str, str]]) -> dict[str, Any]:
-    """POST /api/v2/cortex/analyst/message (Analyst REST accepts user-role messages only)."""
+    """POST /api/v2/cortex/analyst/message.
+
+    Use a single user turn for maximum compatibility in SiS deployments that
+    enforce strict message validation.
+    """
     host, token = _connection_auth()
     if not host or not token:
         return {"error": "No Snowflake session or REST token. Run inside Streamlit in Snowflake."}
 
-    api_messages: list[dict[str, Any]] = []
-    for msg in history[-6:]:
-        if msg.get("role") != "user":
-            continue
-        api_messages.append(
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": msg.get("content", "")}],
-            }
-        )
-    api_messages.append(
+    _ = history  # Intentionally unused for stateless Analyst requests.
+    api_messages: list[dict[str, Any]] = [
         {
             "role": "user",
             "content": [{"type": "text", "text": question}],
         }
-    )
+    ]
 
     payload = {
         "messages": api_messages,
@@ -356,6 +352,8 @@ if question:
 
             if response.get("error"):
                 err = str(response["error"])
+                if response.get("raw"):
+                    err = f"{err}\n\nDetails: {json.dumps(response['raw'], ensure_ascii=True)}"
                 st.session_state.messages.append({"role": "assistant", "content": err})
                 st.session_state.last_df = None
                 st.session_state.last_sql = None

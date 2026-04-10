@@ -29,11 +29,6 @@ tables:
       database: HACKATHON
       schema: DATA
       table: V_UNEMPLOYMENT
-    primary_key:
-      columns:
-        - GEO_ID
-        - DATE
-        - VARIABLE_NAME
     dimensions:
       - name: indicator_name
         description: The specific unemployment indicator including demographic segment.
@@ -89,12 +84,6 @@ tables:
       database: HACKATHON
       schema: DATA
       table: V_RETAIL_SALES
-    primary_key:
-      columns:
-        - GEO_ID
-        - DATE
-        - VARIABLE_NAME
-        - UNIT
     dimensions:
       - name: sales_category
         description: Retail series name with category embedded in VARIABLE_NAME.
@@ -163,11 +152,6 @@ tables:
       database: HACKATHON
       schema: DATA
       table: V_INTEREST_RATES
-    primary_key:
-      columns:
-        - GEO_ID
-        - DATE
-        - VARIABLE_NAME
     dimensions:
       - name: rate_type
         description: Specific rate instrument such as Treasury bill or commercial paper.
@@ -223,11 +207,6 @@ tables:
       database: HACKATHON
       schema: DATA
       table: V_INDUSTRIAL_PRODUCTION
-    primary_key:
-      columns:
-        - GEO_ID
-        - DATE
-        - VARIABLE_NAME
     dimensions:
       - name: industry_name
         description: >
@@ -292,11 +271,6 @@ tables:
       database: HACKATHON
       schema: DATA
       table: V_COMPANY_RELATIONSHIPS
-    primary_key:
-      columns:
-        - COMPANY_ID
-        - RELATED_COMPANY_ID
-        - RELATIONSHIP_START_DATE
     dimensions:
       - name: parent_company_id
         description: Parent company unique identifier.
@@ -357,8 +331,7 @@ tables:
           - subsidiaries
 
 verified_queries:
-  - name: unemployment_trend_2020_2024
-    question: "What is the US unemployment rate trend from 2020 to 2024?"
+  - question: "What is the US unemployment rate trend from 2020 to 2024?"
     sql: |
       SELECT "DATE", AVG(UNEMPLOYMENT_RATE) AS unemployment_rate
       FROM HACKATHON.DATA.V_UNEMPLOYMENT
@@ -370,8 +343,7 @@ verified_queries:
       GROUP BY "DATE"
       ORDER BY "DATE"
 
-  - name: unemployment_men_vs_women_2022
-    question: "How did unemployment differ between men and women in 2022?"
+  - question: "How did unemployment differ between men and women in 2022?"
     sql: |
       SELECT
         "DATE",
@@ -383,8 +355,7 @@ verified_queries:
       GROUP BY "DATE"
       ORDER BY "DATE"
 
-  - name: retail_top_categories_2023
-    question: "What are the top retail sales categories by total value in 2023?"
+  - question: "What are the top retail sales categories by total value in 2023?"
     sql: |
       SELECT VARIABLE_NAME AS category, SUM(RETAIL_SALES) AS total_sales
       FROM HACKATHON.DATA.V_RETAIL_SALES
@@ -394,8 +365,7 @@ verified_queries:
       ORDER BY total_sales DESC
       LIMIT 10
 
-  - name: retail_auto_trend_2019_2023
-    question: "How did auto retail sales trend from 2019 to 2023?"
+  - question: "How did auto retail sales trend from 2019 to 2023?"
     sql: |
       SELECT "DATE", SUM(RETAIL_SALES) AS auto_sales
       FROM HACKATHON.DATA.V_RETAIL_SALES
@@ -405,8 +375,7 @@ verified_queries:
       GROUP BY "DATE"
       ORDER BY "DATE"
 
-  - name: interest_treasury_bills_since_2020
-    question: "How have Treasury bill rates changed since 2020?"
+  - question: "How have Treasury bill rates changed since 2020?"
     sql: |
       SELECT "DATE", AVG(INTEREST_RATE) AS avg_rate, VARIABLE_NAME AS rate_type
       FROM HACKATHON.DATA.V_INTEREST_RATES
@@ -416,8 +385,7 @@ verified_queries:
       GROUP BY "DATE", VARIABLE_NAME
       ORDER BY "DATE"
 
-  - name: interest_treasury_2022_2023
-    question: "What were interest rates doing during 2022 and 2023?"
+  - question: "What were interest rates doing during 2022 and 2023?"
     sql: |
       SELECT "DATE", AVG(INTEREST_RATE) AS avg_rate
       FROM HACKATHON.DATA.V_INTEREST_RATES
@@ -427,8 +395,7 @@ verified_queries:
       GROUP BY "DATE"
       ORDER BY "DATE"
 
-  - name: industrial_top_sectors_2023
-    question: "Which industrial sectors had the highest production in 2023?"
+  - question: "Which industrial sectors had the highest production in 2023?"
     sql: |
       SELECT VARIABLE_NAME AS sector, AVG(PRODUCTION_INDEX) AS avg_production_index
       FROM HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION
@@ -437,8 +404,7 @@ verified_queries:
       ORDER BY avg_production_index DESC
       LIMIT 10
 
-  - name: industrial_aerospace_2019_2023
-    question: "How did aerospace production change from 2019 to 2023?"
+  - question: "How did aerospace production change from 2019 to 2023?"
     sql: |
       SELECT "DATE", AVG(PRODUCTION_INDEX) AS production_index
       FROM HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION
@@ -447,8 +413,7 @@ verified_queries:
       GROUP BY "DATE"
       ORDER BY "DATE"
 
-  - name: industrial_aerospace_industrial_production_trend
-    question: "How did aerospace industrial production trend from 2019 to 2023?"
+  - question: "How did aerospace industrial production trend from 2019 to 2023?"
     sql: |
       SELECT "DATE", AVG(PRODUCTION_INDEX) AS production_index
       FROM HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION
@@ -457,8 +422,7 @@ verified_queries:
       GROUP BY "DATE"
       ORDER BY "DATE"
 
-  - name: company_most_subsidiaries
-    question: "Which company owns the most subsidiaries?"
+  - question: "Which company owns the most subsidiaries?"
     sql: |
       SELECT COMPANY_NAME AS parent_company,
              COUNT(RELATED_COMPANY_NAME) AS subsidiary_count
@@ -467,24 +431,21 @@ verified_queries:
       ORDER BY subsidiary_count DESC
       LIMIT 15
 
-  - name: company_kroger_subsidiaries
-    question: "What subsidiaries does Kroger own?"
+  - question: "What subsidiaries does Kroger own?"
     sql: |
       SELECT RELATED_COMPANY_NAME AS subsidiary
       FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
       WHERE COMPANY_NAME = 'KROGER CO'
       ORDER BY RELATED_COMPANY_NAME
 
-  - name: company_marriott_subsidiaries
-    question: "What subsidiaries does Marriott own?"
+  - question: "What subsidiaries does Marriott own?"
     sql: |
       SELECT RELATED_COMPANY_NAME AS subsidiary
       FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
       WHERE COMPANY_NAME = 'MARRIOTT INTERNATIONAL INC /MD/'
       ORDER BY RELATED_COMPANY_NAME
 
-  - name: company_retail_parents_subsidiary_counts
-    question: "Which retail companies have the most subsidiaries?"
+  - question: "Which retail companies have the most subsidiaries?"
     sql: |
       SELECT COMPANY_NAME AS parent_company,
              COUNT(RELATED_COMPANY_NAME) AS subsidiary_count
