@@ -211,6 +211,47 @@ WHERE "DATE" BETWEEN '2019-01-01' AND '2024-12-31'
 ORDER BY "DATE"
 """.strip()
 
+# When V_CPI is empty (strict view filters vs listing metadata), pull headline CPI-U SA directly by series id.
+SQL_FALLBACK_CPI_CPIAUCSL_PUBLIC = """
+SELECT
+  ts."DATE" AS "DATE",
+  ts.VALUE AS CPI_INDEX,
+  COALESCE(
+    NULLIF(TRIM(ts.VARIABLE_NAME), ''),
+    NULLIF(TRIM(att.VARIABLE_NAME), ''),
+    ts.VARIABLE
+  ) AS VARIABLE_NAME
+FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
+JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
+  ON ts.VARIABLE = att.VARIABLE
+WHERE (
+    (UPPER(ts.VARIABLE) LIKE '%CPIAUCSL%' AND UPPER(ts.VARIABLE) NOT LIKE '%CPIAUCNS%')
+    OR UPPER(ts.VARIABLE) LIKE '%CUSR0000SA0%'
+  )
+  AND ts."DATE" BETWEEN '2019-01-01' AND '2024-12-31'
+ORDER BY ts."DATE"
+""".strip()
+
+SQL_FALLBACK_CPI_CPIAUCSL_CYBERSYN = """
+SELECT
+  ts."DATE" AS "DATE",
+  ts.VALUE AS CPI_INDEX,
+  COALESCE(
+    NULLIF(TRIM(ts.VARIABLE_NAME), ''),
+    NULLIF(TRIM(att.VARIABLE_NAME), ''),
+    ts.VARIABLE
+  ) AS VARIABLE_NAME
+FROM SNOWFLAKE_PUBLIC_DATA_FREE.CYBERSYN.financial_economic_indicators_timeseries ts
+JOIN SNOWFLAKE_PUBLIC_DATA_FREE.CYBERSYN.financial_economic_indicators_attributes att
+  ON ts.VARIABLE = att.VARIABLE
+WHERE (
+    (UPPER(ts.VARIABLE) LIKE '%CPIAUCSL%' AND UPPER(ts.VARIABLE) NOT LIKE '%CPIAUCNS%')
+    OR UPPER(ts.VARIABLE) LIKE '%CUSR0000SA0%'
+  )
+  AND ts."DATE" BETWEEN '2019-01-01' AND '2024-12-31'
+ORDER BY ts."DATE"
+""".strip()
+
 SQL_FALLBACK_GDP_QUARTERLY_5Y = """
 SELECT "DATE", GDP_VALUE, UNIT, VARIABLE_NAME, FREQUENCY
 FROM HACKATHON.DATA.V_GDP
@@ -329,7 +370,7 @@ def _fallback_sql_for_question(q: str) -> str | None:
     # Company graph intents
     if _wants_subsidiary_leaderboard(t):
         return SQL_FALLBACK_MOST_SUBSIDIARIES
-    if "more than 5" in t and "subsidiar" in t:
+    if ("more than 5" in t or "more than five" in t) and "subsidiar" in t:
         return SQL_FALLBACK_COMPANIES_GT5_SUBSIDIARIES
     dyn_company = _company_name_from_subsidiary_question(q)
     if dyn_company:
@@ -401,6 +442,57 @@ def _fallback_sql_for_question(q: str) -> str | None:
         return SQL_FALLBACK_MACRO_UNEMPLOYMENT_IP_2020
 
     return None
+
+
+def _is_cpi_headline_series_intent(q: str) -> bool:
+    """True for single-series headline CPI questions (not unemployment+CPI compare on macro_wide)."""
+    t = _normalize_question(q)
+    if not _has_any(t, ("cpi", "consumer price", "inflation")) or "gdp" in t:
+        return False
+    if "unemployment" in t:
+        return False
+    return _has_any(
+        t,
+        (
+            "monthly",
+            "trend",
+            "2019",
+            "2020",
+            "2021",
+            "2022",
+            "2023",
+            "2024",
+            "show",
+            "index",
+            "headline",
+        ),
+    )
+
+
+def _recover_cpi_from_marketplace(
+    df: pd.DataFrame,
+    sql: str | None,
+    question: str,
+) -> tuple[pd.DataFrame, str | None]:
+    """If V_CPI path failed, try direct CPIAUCSL from marketplace (PUBLIC_DATA_FREE then CYBERSYN)."""
+    if not _is_cpi_headline_series_intent(question):
+        return df, sql
+    if df is not None and not df.empty and "Error" not in df.columns:
+        return df, sql
+    prior = (sql or SQL_FALLBACK_CPI_MONTHLY_2019_2024).strip()
+    base_note = (
+        "\n\n-- Note: HACKATHON.DATA.V_CPI returned no usable rows (or SQL errored). "
+        "Using direct FRED **CPIAUCSL** (headline CPI-U, seasonally adjusted) from the marketplace listing."
+    )
+    for alt_sql, schema_tag in (
+        (SQL_FALLBACK_CPI_CPIAUCSL_PUBLIC, "PUBLIC_DATA_FREE"),
+        (SQL_FALLBACK_CPI_CPIAUCSL_CYBERSYN, "CYBERSYN"),
+    ):
+        alt_df = run_sql(alt_sql)
+        if alt_df is not None and not alt_df.empty and "Error" not in alt_df.columns:
+            combined = prior + base_note + f" Schema: SNOWFLAKE_PUBLIC_DATA_FREE.{schema_tag}."
+            return alt_df, combined
+    return df, sql
 
 
 SPELLING_MAP = {
@@ -475,9 +567,11 @@ def _assistant_reply_when_no_narrative(
         t0 = _normalize_question(question)
         if _has_any(t0, ("cpi", "consumer price", "headline cpi", "inflation")) and "gdp" not in t0:
             return (
-                "**No CPI rows** were returned (SQL error or empty result). The app will use **verified V_CPI** SQL when Analyst "
-                "SQL fails or returns zero rows — try **Run analysis** again. If it still fails, confirm "
-                "`HACKATHON.DATA.V_CPI` is deployed and populated (see `hackathon/economic_indicators_views.sql`)."
+                "**No CPI rows** after **V_CPI** and a direct **CPIAUCSL** marketplace query. "
+                "That usually means the Finance & Economics listing is not available to this role, or the share uses a schema "
+                "other than `PUBLIC_DATA_FREE` / `CYBERSYN`. Run `hackathon/sql/discover_cpi_gdp_filters.sql` in Snowsight, "
+                "redeploy `V_CPI` from `hackathon/economic_indicators_views.sql` (swap schema if needed), and confirm "
+                "`SELECT COUNT(*) FROM HACKATHON.DATA.V_CPI` returns rows."
             )
         return (
             "**No data** for that query (empty result or SQL error), so there is nothing to chart yet. "
@@ -2396,6 +2490,24 @@ EXAMPLE_QUICK: list[tuple[str, str]] = [
     ("📊", "How did interest rates change between 2022 and 2023?"),
 ]
 
+# Left-rail when Workspace = Company relationships (tables / corporate graph)
+EXAMPLE_QUICK_COMPANY: list[tuple[str, str]] = [
+    ("🔗", "Which company owns the most subsidiaries?"),
+    ("🔗", "Which companies have more than five subsidiaries?"),
+    ("🏢", "What subsidiaries does Kroger own?"),
+    ("🏢", "What subsidiaries does Marriott own?"),
+    ("🔗", "Show parent companies ranked by subsidiary count."),
+    ("📊", "What are the top retail sales categories in 2023?"),
+    ("📈", "Show monthly headline CPI index from 2019 through 2024."),
+]
+
+
+def _workspace_quick_examples(ws: str) -> tuple[str, list[tuple[str, str]]]:
+    """Section label + vertical example buttons for the selected workspace."""
+    if (ws or "").strip() == "Company relationships":
+        return "Company & relationship examples", EXAMPLE_QUICK_COMPANY
+    return "Macro & chart-ready examples", EXAMPLE_QUICK
+
 
 def _render_vertical_examples(items: list[tuple[str, str]], key_prefix: str) -> None:
     for i, (icon, q) in enumerate(items):
@@ -2543,25 +2655,41 @@ def _render_dashboard_layout() -> tuple[bool, str]:
                 "Workspace",
                 ["Economic analytics", "Company relationships"],
                 key="ei_workspace",
-                help="Organizes starter prompts; both use the same semantic model today.",
+                help="Switches the example rail and tab order to match your topic; same semantic model underneath.",
             )
+            _ws = st.session_state.get("ei_workspace") or "Economic analytics"
+            _ex_label, _ex_items = _workspace_quick_examples(_ws)
             st.markdown(
-                '<div class="ei-example-section-label">Chart-ready examples</div>',
+                f'<div class="ei-example-section-label">{html.escape(_ex_label)}</div>',
                 unsafe_allow_html=True,
             )
-            _render_vertical_examples(EXAMPLE_QUICK, "ex_left")
+            _ex_key = "ex_left_co" if _ws == "Company relationships" else "ex_left_econ"
+            _render_vertical_examples(_ex_items, _ex_key)
             with st.expander("More starter prompts (tabs)", expanded=True):
-                tab_core, tab_pg, tab_wide, tab_co = st.tabs(
-                    ["Macro", "CPI/GDP", "Wide", "Cos."]
-                )
-                with tab_core:
-                    _render_suggestion_chips(SUGGESTED_CORE, "sug_core")
-                with tab_pg:
-                    _render_suggestion_chips(SUGGESTED_PRICES_GDP, "sug_pg")
-                with tab_wide:
-                    _render_suggestion_chips(SUGGESTED_MACRO_WIDE, "sug_wide")
-                with tab_co:
-                    _render_suggestion_chips(SUGGESTED_COMPANIES, "sug_co")
+                if _ws == "Company relationships":
+                    tab_co, tab_core, tab_pg, tab_wide = st.tabs(
+                        ["Cos.", "Macro", "CPI/GDP", "Wide"]
+                    )
+                    with tab_co:
+                        _render_suggestion_chips(SUGGESTED_COMPANIES, "sug_co")
+                    with tab_core:
+                        _render_suggestion_chips(SUGGESTED_CORE, "sug_core")
+                    with tab_pg:
+                        _render_suggestion_chips(SUGGESTED_PRICES_GDP, "sug_pg")
+                    with tab_wide:
+                        _render_suggestion_chips(SUGGESTED_MACRO_WIDE, "sug_wide")
+                else:
+                    tab_core, tab_pg, tab_wide, tab_co = st.tabs(
+                        ["Macro", "CPI/GDP", "Wide", "Cos."]
+                    )
+                    with tab_core:
+                        _render_suggestion_chips(SUGGESTED_CORE, "sug_core")
+                    with tab_pg:
+                        _render_suggestion_chips(SUGGESTED_PRICES_GDP, "sug_pg")
+                    with tab_wide:
+                        _render_suggestion_chips(SUGGESTED_MACRO_WIDE, "sug_wide")
+                    with tab_co:
+                        _render_suggestion_chips(SUGGESTED_COMPANIES, "sug_co")
             st.selectbox(
                 "Response voice",
                 list(PERSONAS.keys()),
@@ -2575,10 +2703,20 @@ def _render_dashboard_layout() -> tuple[bool, str]:
 
     with _center_col:
         with _glass_panel():
+            _ws_center = st.session_state.get("ei_workspace") or "Economic analytics"
+            if _ws_center == "Company relationships":
+                _ask_sub = (
+                    'Type below or tap a <strong>company</strong> example on the left — '
+                    "parent → subsidiary questions return <strong>lists or tables</strong>; you can still run macro questions from "
+                    "<strong>More starter prompts</strong>."
+                )
+            else:
+                _ask_sub = (
+                    'Type below or tap a <strong>chart-ready</strong> example on the left — '
+                    "unemployment, CPI, GDP, rates, and multi-metric compares render as <strong>line charts</strong> when the result is a time series."
+                )
             st.markdown(
-                '<div class="ei-ask-head">Ask &amp; analyze</div>'
-                '<div class="ei-ask-sub">Type below or tap a <strong>chart-ready</strong> example on the left — '
-                "unemployment, CPI, GDP, rates, and multi-metric compares all render as <strong>line charts</strong> when the result is a time series.</div>",
+                f'<div class="ei-ask-head">Ask &amp; analyze</div><div class="ei-ask-sub">{_ask_sub}</div>',
                 unsafe_allow_html=True,
             )
             with st.form("chat_form", clear_on_submit=True):
@@ -2936,6 +3074,7 @@ if question:
                         elif "Error" in df.columns:
                             df = df_fb
                             sql = fb_sql + "\n\n-- Note: Cortex Analyst SQL failed; ran verified fallback query."
+                    df, sql = _recover_cpi_from_marketplace(df, sql, question_for_model)
                     st.session_state.last_sql = sql
                     st.session_state.last_df = df
                     _progress_step("Drafting an executive summary with Cortex COMPLETE…")
@@ -2977,10 +3116,12 @@ if question:
                     if fallback_sql:
                         _progress_step("No SQL from Analyst — using a verified fallback query…")
                         df = run_sql(fallback_sql)
-                        st.session_state.last_sql = (
+                        _fsql = (
                             fallback_sql
                             + "\n\n-- Note: Cortex Analyst did not return SQL; ran verified fallback query."
                         )
+                        df, _fsql = _recover_cpi_from_marketplace(df, _fsql, question_for_model)
+                        st.session_state.last_sql = _fsql
                         st.session_state.last_df = df
                         _progress_step("Summarizing fallback results…")
                         narrative = generate_narrative(
