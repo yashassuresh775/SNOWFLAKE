@@ -79,4 +79,25 @@ AND   att.RELEASE_SOURCE  = 'Federal Reserve'
 AND   att.SEASONALLY_ADJUSTED = 'Seasonally adjusted'
 AND   att.FREQUENCY       = 'Monthly';
 
-SHOW VIEWS IN HACKATHON.DATA;
+-- ============================================================
+-- V_COMPANY_RELATIONSHIPS  (Cybersyn — Company Relationship Graph, Marketplace)
+-- ============================================================
+-- Before running: replace CYBERSYN_MARKETPLACE_DB with the database created when you
+-- installed the listing (check Databases in Snowsight or the Marketplace "Open" link).
+-- Confirm object path: DESCRIBE TABLE CYBERSYN_MARKETPLACE_DB.PUBLIC_DATA.COMPANY_RELATIONSHIPS;
+-- Confirm filter values: SELECT DISTINCT RELATIONSHIP_TYPE FROM ... LIMIT 100;
+CREATE OR REPLACE VIEW HACKATHON.DATA.V_COMPANY_RELATIONSHIPS AS
+SELECT
+    cr.COMPANY_ID,
+    cr.COMPANY_NAME,
+    cr.RELATED_COMPANY_ID,
+    cr.RELATED_COMPANY_NAME,
+    cr.ENTITY_LEVEL,
+    cr.RELATIONSHIP_TYPE,
+    cr.RELATIONSHIP_START_DATE,
+    cr.RELATIONSHIP_END_DATE
+FROM CYBERSYN_MARKETPLACE_DB.PUBLIC_DATA.COMPANY_RELATIONSHIPS AS cr
+WHERE UPPER(TRIM(cr.RELATIONSHIP_TYPE)) = 'PARENT';
+-- Parent-only edges reduce duplicate / bidirectional rows for parent–subsidiary analysis.
+
+SHOW VIEWS IN SCHEMA HACKATHON.DATA;
