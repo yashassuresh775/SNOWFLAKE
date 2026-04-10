@@ -1886,6 +1886,19 @@ section.main div[data-testid="stButton"] button:not([kind="primary"]) {
     text-align: center !important;
     justify-content: center !important;
 }
+/* Left dashboard column only: starter prompts inside tabs — full-width feel, taller targets */
+section.main div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child
+  [data-testid="stTabs"] div[data-testid="stButton"] button:not([kind="primary"]) {
+    min-height: 64px !important;
+    padding: 16px 14px !important;
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    line-height: 1.4 !important;
+    white-space: normal !important;
+    text-align: left !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
+}
 details summary {
     font-weight: 600 !important;
     color: var(--dm-sky) !important;
@@ -2394,13 +2407,11 @@ def _render_vertical_examples(items: list[tuple[str, str]], key_prefix: str) -> 
 
 
 def _render_suggestion_chips(questions: list[str], key_prefix: str) -> None:
-    cols = st.columns(2)
+    # One button per row — full rail width so long prompts don’t squeeze into half-columns (mobile / narrow layout).
     for i, q in enumerate(questions):
-        label = q[:78] + ("…" if len(q) > 78 else "")
-        with cols[i % 2]:
-            if st.button(label, key=f"{key_prefix}_{i}", use_container_width=True):
-                st.session_state.pending_question = q
-                st.rerun()
+        if st.button(q, key=f"{key_prefix}_{i}", use_container_width=True):
+            st.session_state.pending_question = q
+            st.rerun()
 
 # ── session state ─────────────────────────────────────────────────────────
 if "messages" not in st.session_state:
@@ -2539,7 +2550,7 @@ def _render_dashboard_layout() -> tuple[bool, str]:
                 unsafe_allow_html=True,
             )
             _render_vertical_examples(EXAMPLE_QUICK, "ex_left")
-            with st.expander("More starter prompts (tabs)", expanded=False):
+            with st.expander("More starter prompts (tabs)", expanded=True):
                 tab_core, tab_pg, tab_wide, tab_co = st.tabs(
                     ["Macro", "CPI/GDP", "Wide", "Cos."]
                 )
