@@ -1,6 +1,6 @@
 # NL query log — Economic Intelligence (AI-02)
 
-Run each prompt in Cortex Analyst (semantic model on `HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE`) or through the Streamlit app. Mark **pass** / **partial** / **fail** after validating SQL and row counts.
+Run each prompt in Cortex Analyst (semantic YAML covers `ECONOMIC_INDICATORS_WIDE` **and** `V_COMPANY_RELATIONSHIPS`) or through the Streamlit app. Mark **pass** / **partial** / **fail** after validating SQL and row counts.
 
 | # | Question | Type | Expected | Result |
 |---|----------|------|----------|--------|
@@ -23,5 +23,8 @@ Run each prompt in Cortex Analyst (semantic model on `HACKATHON.DATA.ECONOMIC_IN
 | 17 | Is the economy doing well? | Ambiguous | Clarifier | |
 | 18 | Show me rates | Ambiguous | Clarifier | |
 | 19 | Compare pre- and post-COVID unemployment by quarter | Complex | Bar by quarter | |
+| 20 | List parent companies and their subsidiaries | Company graph | Table from `V_COMPANY_RELATIONSHIPS` | |
+| 21 | How many parent relationship rows exist? | Company graph | Single count | |
+| 22 | Which parents have the most subsidiaries? | Company graph | Top-N by count | |
 
-**Notes:** Refine `economic_model.yaml` verified queries and synonyms for any **fail** or **partial** rows.
+**Notes:** Refine `economic_model.yaml` verified queries and synonyms for any **fail** or **partial** rows. Install the Cybersyn Marketplace listing and replace `CYBERSYN_MARKETPLACE_DB` in `economic_indicators_views.sql` before creating `V_COMPANY_RELATIONSHIPS`.

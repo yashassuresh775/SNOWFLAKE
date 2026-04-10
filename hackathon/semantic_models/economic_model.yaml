@@ -1,21 +1,25 @@
-# Cortex Analyst semantic model — US Finance & Economics (Snowflake Data: Finance & Economics)
-# Physical base: HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE (run economic_indicators_views.sql + 02_economic_indicators_wide.sql first)
+# Cortex Analyst semantic model — macro + company graph
+# Macro: HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE (02_economic_indicators_wide.sql)
+# Company: HACKATHON.DATA.V_COMPANY_RELATIONSHIPS (Cybersyn listing → replace CYBERSYN_MARKETPLACE_DB in economic_indicators_views.sql)
 # Upload: PUT to @HACKATHON.DATA.SEMANTIC_MODELS
 
 name: us_economic_intelligence
 description: |
-  US macroeconomic time series for conversational BI: labor market, inflation (CPI), output (GDP, industrial production),
-  retail sales, and interest rates (Fed funds, Treasury). Grain is one row per GEO_ID and OBSERVATION_DATE; measures are
-  left-joined from BLS, Census, and Federal Reserve feeds via SNOWFLAKE_PUBLIC_DATA_FREE.
+  Two domains: (1) US macroeconomic time series — labor, inflation, GDP, retail, rates, industrial production — at
+  GEO_ID × OBSERVATION_DATE grain on ECONOMIC_INDICATORS_WIDE. (2) Corporate relationships — parent/subsidiary-style
+  edges on V_COMPANY_RELATIONSHIPS (filtered parent-direction rows from Cybersyn Company Relationship Graph).
+  These tables are not joined; route macro questions to economic_indicators and corporate-structure questions to company_relationships.
 
 custom_instructions: |
-  Default to US national context when the user does not specify a country or state.
-  Prefer monthly frequency for trends ("over time", "since 2020") unless the user asks for quarterly, annual, or YoY.
-  Filter on OBSERVATION_DATE for time ranges. Use OBSERVATION_YEAR or OBSERVATION_MONTH for "by year" or "by month" rollups.
-  When a measure is NULL for a date, treat it as missing for that series — do not invent values.
+  For macro / economy / inflation / Fed / unemployment / GDP / retail questions, use logical table economic_indicators (ECONOMIC_INDICATORS_WIDE).
+  For parent company, subsidiary, holding company, corporate structure, or "who owns whom" questions, use company_relationships (V_COMPANY_RELATIONSHIPS).
+  Do not join macro data to company relationships unless the user explicitly asks to combine domains and a shared key exists.
+  Default to US national context when the user does not specify geography for macro series.
+  Prefer monthly frequency for macro trends unless the user asks for quarterly, annual, or YoY.
+  Filter macro series on OBSERVATION_DATE; use OBSERVATION_YEAR or OBSERVATION_MONTH for rollups.
+  When a macro measure is NULL, treat it as missing — do not invent values.
   Round displayed numbers to 2 decimal places unless the user asks for more precision.
-  For "current" or "latest" values, order by OBSERVATION_DATE DESC and take the first non-null observation for that measure.
-  For comparisons between two indicators (e.g. unemployment vs CPI), join on GEO_ID and OBSERVATION_DATE in one SELECT.
+  For corporate rows, prefer filtering active relationships (RELATIONSHIP_END_DATE IS NULL) when the user asks for "current" structure, if end dates are populated.
 
 tables:
   - name: economic_indicators
@@ -182,6 +186,88 @@ tables:
         data_type: number
         default_aggregation: avg
 
+  - name: company_relationships
+    description: |
+      Parent-direction company relationship edges (Cybersyn) exposed as HACKATHON.DATA.V_COMPANY_RELATIONSHIPS.
+      One row per parent-related pair in the filtered extract; use for subsidiaries, holdings, and corporate hierarchy questions.
+
+    base_table:
+      database: HACKATHON
+      schema: DATA
+      table: V_COMPANY_RELATIONSHIPS
+
+    primary_key:
+      columns:
+        - COMPANY_ID
+        - RELATED_COMPANY_ID
+        - RELATIONSHIP_START_DATE
+
+    time_dimensions:
+      - name: relationship_start_date
+        synonyms: ["start date", "effective date", "since", "from"]
+        description: Start date of the relationship edge.
+        expr: RELATIONSHIP_START_DATE
+        data_type: date
+        unique: false
+
+    dimensions:
+      - name: company_id
+        synonyms: ["parent company id", "company id", "firm id", "issuer id"]
+        description: Identifier for the company on the parent side of the relationship.
+        expr: COMPANY_ID
+        data_type: text
+        unique: false
+
+      - name: company_name
+        synonyms: ["parent", "parent company", "holding company", "firm", "company"]
+        description: Name of the parent-side company.
+        expr: COMPANY_NAME
+        data_type: text
+        unique: false
+
+      - name: related_company_id
+        synonyms: ["subsidiary id", "child id", "related entity id"]
+        description: Identifier for the related company (e.g. subsidiary).
+        expr: RELATED_COMPANY_ID
+        data_type: text
+        unique: false
+
+      - name: related_company_name
+        synonyms: ["subsidiary", "child company", "division", "unit", "related entity"]
+        description: Name of the related company.
+        expr: RELATED_COMPANY_NAME
+        data_type: text
+        unique: false
+
+      - name: entity_level
+        synonyms: ["reporting level", "hierarchy level", "level"]
+        description: Hierarchy level from the source graph.
+        expr: ENTITY_LEVEL
+        data_type: text
+        unique: false
+
+      - name: relationship_type
+        synonyms: ["relationship", "edge type", "link type"]
+        description: Relationship type; this view is restricted to parent-style rows.
+        expr: RELATIONSHIP_TYPE
+        data_type: text
+        unique: false
+
+      - name: relationship_end_date
+        synonyms: ["end date", "until", "terminated"]
+        description: End date when the relationship ended; may be null if ongoing.
+        expr: RELATIONSHIP_END_DATE
+        data_type: date
+        unique: false
+
+    measures:
+      - name: relationship_row
+        synonyms: ["count", "edges", "links", "pairs"]
+        description: Constant 1 per row for counting relationship edges.
+        expr: 1
+        data_type: number
+        default_aggregation: sum
+
 verified_queries:
   - name: covid_peak_unemployment
     question: What was the peak unemployment rate in 2020 and when did it occur?
@@ -305,3 +391,26 @@ verified_queries:
       WHERE OBSERVATION_DATE >= DATEADD(year, -10, CURRENT_DATE())
         AND (FED_FUNDS_RATE IS NOT NULL OR CPI IS NOT NULL)
       ORDER BY OBSERVATION_DATE
+
+  - name: company_list_parent_subsidiary_pairs
+    question: List parent companies and their related companies
+    sql: |
+      SELECT COMPANY_NAME, RELATED_COMPANY_NAME, RELATIONSHIP_START_DATE, RELATIONSHIP_END_DATE
+      FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
+      ORDER BY COMPANY_NAME, RELATED_COMPANY_NAME
+      LIMIT 100
+
+  - name: company_count_parent_edges
+    question: How many parent company relationships are in the dataset?
+    sql: |
+      SELECT COUNT(*) AS PARENT_RELATIONSHIP_ROWS
+      FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
+
+  - name: company_top_parents_by_subsidiaries
+    question: Which parent companies have the most subsidiaries?
+    sql: |
+      SELECT COMPANY_NAME, COUNT(*) AS SUBSIDIARY_COUNT
+      FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
+      GROUP BY COMPANY_NAME
+      ORDER BY SUBSIDIARY_COUNT DESC
+      LIMIT 15

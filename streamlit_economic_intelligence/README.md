@@ -1,11 +1,13 @@
 # Economic Intelligence — Streamlit + Cortex Analyst
 
-Hackathon **AI-02** app: natural language BI over `HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE` with Cortex Analyst, Cortex COMPLETE, Plotly, and the six innovation features from the spec (confidence meter, follow-up chips, ambiguity handler, executive brief, auto charts, live query accuracy).
+Hackathon **AI-02** app: natural language BI over **`ECONOMIC_INDICATORS_WIDE`** (macro) and **`V_COMPANY_RELATIONSHIPS`** (Cybersyn company graph) via Cortex Analyst, plus Cortex COMPLETE, Plotly, and the six innovation features from the spec.
 
 ## Prereqs in Snowflake
 
-1. Run `hackathon/economic_indicators_views.sql`, then **`hackathon/sql/02_economic_indicators_wide.sql`** (adds `OBSERVATION_YEAR` / `OBSERVATION_MONTH` for the semantic model), then `hackathon/sql/03_semantic_stage.sql`.
-2. Upload the semantic model (**re-PUT after any YAML change**):
+1. **Marketplace:** get **Snowflake Data: Finance & Economics** (for `SNOWFLAKE_PUBLIC_DATA_FREE`) and **Cybersyn — Company Relationship Graph** (or your team’s listing that exposes `PUBLIC_DATA.COMPANY_RELATIONSHIPS`).
+2. In `hackathon/economic_indicators_views.sql`, set **`CYBERSYN_MARKETPLACE_DB`** to the database name created in your account for that listing, then run the script.
+3. Run **`hackathon/sql/02_economic_indicators_wide.sql`** (adds `OBSERVATION_YEAR` / `OBSERVATION_MONTH`), then **`hackathon/sql/03_semantic_stage.sql`**.
+4. Upload the semantic model (**re-PUT after any YAML change**):
 
    ```sql
    PUT file://economic_model.yaml @HACKATHON.DATA.SEMANTIC_MODELS AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
@@ -13,12 +15,12 @@ Hackathon **AI-02** app: natural language BI over `HACKATHON.DATA.ECONOMIC_INDIC
 
    (Run from Snowflake CLI or SnowSQL with the file path adjusted; or use **Data » Stages** upload.)
 
-3. **Streamlit in Snowflake:** create a new Streamlit app, point root file to `app.py`, include `requirements.txt` packages. Set secrets/env if needed:
+5. **Streamlit in Snowflake:** create a new Streamlit app, point root file to `app.py`, include `requirements.txt` packages. Set secrets/env if needed:
 
    - `SEMANTIC_MODEL_FILE` — default `@HACKATHON.DATA.SEMANTIC_MODELS/economic_model.yaml`
    - `CORTEX_COMPLETE_MODEL` — default `mistral-large2` (use an LLM enabled on your account, e.g. `llama3-8b`, `snowflake-arctic`)
 
-4. **External access:** if the REST call to `/api/v2/cortex/analyst/message` is blocked, create a **network rule / Egress** as required by your org (training accounts often allow Snowflake REST to same account).
+6. **External access:** if the REST call to `/api/v2/cortex/analyst/message` is blocked, create a **network rule / Egress** as required by your org (training accounts often allow Snowflake REST to same account).
 
 ## Local UI skeleton (optional)
 
