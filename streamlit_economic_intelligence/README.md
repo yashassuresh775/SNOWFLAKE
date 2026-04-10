@@ -3,12 +3,79 @@
 This app provides a conversational BI interface on top of curated economic and company-relationship views in Snowflake.
 
 It supports:
-- natural-language questions through Cortex Analyst,
-- SQL transparency for every response,
-- narrative summaries via Cortex COMPLETE,
-- resilient fallback routing for known high-value question patterns.
+- natural-language questions through **Cortex Analyst** and a versioned **semantic model** on a Snowflake stage,
+- **SQL transparency** on every answer (governance, debugging, trust),
+- **Cortex COMPLETE** narratives with selectable **personas** (e.g. executive voice),
+- **verified SQL fallbacks** and **layered Consumer Price Index recovery** so demos stay alive when generation fails,
+- a curated **macro wide panel** for **same-timeline** multi-indicator questions,
+- **company relationship** queries on the same stack as macro analytics,
+- **anomaly highlights**, **correlation-style insights**, and **PDF brief export** for deliverables.
 
-**Deployment:** see [§8 Deployment — Streamlit in Snowflake](#8-deployment--streamlit-in-snowflake-snowsight) below (Snowsight / Streamlit in Snowflake).
+**Deployment:** see [Section 8 — Deployment — Streamlit in Snowflake](#8-deployment--streamlit-in-snowflake-snowsight) below (Snowsight / Streamlit in Snowflake).
+
+---
+
+## Why this submission stands out (for judges)
+
+| Pillar | What we built | Why it matters |
+|--------|----------------|----------------|
+| **Snowflake-native intelligence** | Streamlit in Snowflake + Snowpark + Cortex Analyst REST + Cortex COMPLETE | End-to-end inside the **Snowflake Data Cloud**—security, governance, and warehouse economics stay unified. |
+| **Semantic-first NL→SQL** | `semantic_model.yaml` on `@HACKATHON.DATA.SEMANTIC_MODELS` with verified queries and custom instructions | Analyst behavior is **repeatable and improvable** like software, not a one-off prompt. |
+| **Real-world data complexity** | Curated views over **Bureau of Labor Statistics**, **Bureau of Economic Analysis**, **Federal Reserve**, Census retail, marketplace feeds, plus **parent–subsidiary** edges | Shows mastery of **messy public data** and **enterprise-style** corporate graph questions in **one** app. |
+| **Resilience under pressure** | Intent router + **Consumer Price Index** source ladder + **Gross Domestic Product** via **`V_GDP`** in fallbacks | Hackathon demos fail on a single bad SQL generation—we **engineered around** that. |
+| **Analyst-grade UX** | Workspace modes, tabbed starter prompts, charts, follow-ups, PDF export | Feels like a **product**, not a thin wrapper around `SELECT *`. |
+
+**Suggested live demo questions (copy-paste):** (1) *Show monthly headline Consumer Price Index from 2019 through 2024.* (2) *Show US real Gross Domestic Product by quarter for the last five years.* (3) *Which company owns the most subsidiaries?* (4) *What is the US unemployment trend from 2020 to 2024?* — plus *Compare unemployment and Consumer Price Index on the same monthly timeline since 2020* for the **wide panel**.
+
+---
+
+## Innovation and differentiation (technical depth)
+
+This section documents **everything distinctive** in the submission: data engineering, Cortex usage, application resilience, analytics UX, and trust.
+
+### Data and semantic layer
+
+- **Curated Snowflake views** on Snowflake **public data / marketplace** listings (`SNOWFLAKE_PUBLIC_DATA_FREE` and documented **Cybersyn** alternatives in SQL comments) so Cortex Analyst and fallback SQL target **stable names** (`V_UNEMPLOYMENT`, `V_RETAIL_SALES`, `V_INTEREST_RATES`, `V_INDUSTRIAL_PRODUCTION`, `V_CPI`, `V_GDP`, `V_COMPANY_RELATIONSHIPS`) instead of raw listing sprawl.
+- **`V_CPI` tiered logic (strict tiers A/B plus tier C):** headline **Consumer Price Index** (**CPI-U**-style, **seasonally adjusted**, core exclusions) first; a **controlled permissive** monthly branch with value bands and **`QUALIFY`** deduplication fills gaps when metadata differs across feeds—**robust to real catalog variance**.
+- **`ECONOMIC_INDICATORS_WIDE` and semantic `macro_wide`:** one row per **`GEO_ID`** + **`OBSERVATION_DATE`** aligning unemployment, retail, rates, industrial production, **Consumer Price Index**, and **Gross Domestic Product** so users can ask **multi-series comparisons on one calendar** without hand-joining five sources in the UI.
+- **Pragmatic split for prices vs output:** **Consumer Price Index** in the wide panel flows from **`V_CPI`**; **Gross Domestic Product** in the wide panel is **aggregated inline** from the same **Bureau of Economic Analysis** filters as **`V_GDP`**, while the app’s **Gross Domestic Product** fallback SQL reads **`V_GDP`** directly—balances **panel completeness** with **simple series access**.
+- **Company graph on the same platform:** **`V_COMPANY_RELATIONSHIPS`** (parent edges) so **macro** and **subsidiary** questions share one semantic model and one Streamlit experience.
+
+### Cortex Analyst and Cortex COMPLETE
+
+- **Cortex Analyst** over **REST** (`/api/v2/cortex/analyst/message`) with **`SEMANTIC_MODEL_FILE`** pointing at staged YAML—**versioned contract** for tables, synonyms, measures, dimensions, and **verified_queries**.
+- **Cortex COMPLETE** (`generate_narrative`) with **`PERSONAS`**—users pick a **response voice** (e.g. executive); hints in **Voice details** explain each mode.
+- **Optional environment overrides:** `CORTEX_COMPLETE_MODEL`, `SEMANTIC_MODEL_FILE` for accounts where defaults differ.
+
+### Resilience and intelligent routing
+
+- **`_fallback_sql_for_question`:** normalized-text **intent router** mapping high-value questions to **hand-verified SQL** (retail leaders, **Treasury** windows, industrial production, **Consumer Price Index** / **Gross Domestic Product** windows, **macro wide** compares, subsidiary patterns, etc.) when Analyst returns no SQL or execution fails.
+- **`_recover_cpi_from_marketplace`:** layered **Consumer Price Index** recovery—**`ECONOMIC_INDICATORS_WIDE`**, public **CPIAUCSL**-style series, **PUBLIC_DATA_FREE** and **CYBERSYN** “best monthly series” pickers with optional value band—**appends a transparency note** when a fallback source is used.
+- **`SPELLING_MAP` and normalization** (e.g. `_normalize_question`) improve matching on typos; **`_analyst_text_is_question_echo`** helps avoid treating useless Analyst echoes as real answers where used in the flow.
+
+### Analytics and UX beyond a static table
+
+- **Native Streamlit charts** (`st.line_chart`, `st.bar_chart`)—**no Plotly** in the baseline—so **Streamlit in Snowflake** package profiles stay simple and portable.
+- **`_zscore_anomaly_rows`:** flags extreme points on time series (configurable **z-score** threshold) for **visual anomaly emphasis** in charts.
+- **`_correlation_insight_line`:** when results are **multi-series** on a date column, adds a **short quantitative read** alongside the chart.
+- **Economic context** (where wired in `app.py`): situates series relative to **events** or periods when applicable—supports **storytelling**, not only plotting.
+- **PDF export (`reportlab`):** **Export brief (PDF)** packages question, narrative, and **SQL transparency** into a **shareable artifact** for stakeholders.
+
+### Trust, governance, and iteration
+
+- **SQL transparency** panel shows **what actually ran**—essential for **audit**, **debugging**, and **teaching**.
+- **Documented improvement loop** (see Section 5): prefer **semantic model** changes; add **fallbacks** only for repeated high-value failures—treats the system as **evolving software**.
+- **Operational validation** (Section 10): view checks, stage listing, **golden natural-language smoke tests**, and **`hackathon/QUERY_LOG.md`** for rubric-style regression after YAML changes.
+- **`hackathon/notebooks/Economic_Modeling_Decisions.ipynb`:** modeling narrative for **why** logical tables and joins are shaped as they are.
+
+### Dashboard and product polish
+
+- **Three-column layout:** left rail (examples + tabbed starter prompts), center (ask, thread, results), right (context, SQL, follow-ups).
+- **Workspace switcher:** **Economic analytics** vs **Company relationships** reorders examples and tabs without duplicating codepaths.
+- **Tabbed starter prompts** (**Macro**, **Consumer Price Index / Gross Domestic Product**, **Wide**, **Companies**) with **full-width suggestion chips** for **mobile-friendly** demos.
+- **Suggested follow-ups:** heuristic **`heuristic_followups`** merged with **COMPLETE**-generated suggestions where enabled—keeps the conversation **going** after the first answer.
+
+---
 
 ## 1) High-level architecture
 
@@ -46,7 +113,7 @@ Important internal units:
 ### `hackathon/semantic_models/semantic_model.yaml`
 
 Cortex semantic contract:
-- table-level metadata for the 5 logical domains,
+- table-level metadata for **eight logical tables** (unemployment, retail_sales, interest_rates, industrial_production, cpi, gdp, macro_wide, company_relationships),
 - dimensions/time/measures and synonyms,
 - custom routing instructions,
 - verified query examples for key ask patterns.
@@ -306,7 +373,7 @@ If your app settings expose **environment variables** or **secrets**:
 
 ### 8.7 Git integration (optional)
 
-If your account has **Git for Streamlit**, connect this repository, set the app root to the folder that contains `app.py`, and set the main file to `streamlit_economic_intelligence/app.py` or `streamlit_economic_intelligence/streamlit_app.py` consistently with §8.3.
+If your account has **Git for Streamlit**, connect this repository, set the app root to the folder that contains `app.py`, and set the main file to `streamlit_economic_intelligence/app.py` or `streamlit_economic_intelligence/streamlit_app.py` consistently with Section 8.3.
 
 ## 9) Notes for ongoing refinement
 
