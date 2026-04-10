@@ -41,12 +41,42 @@ ORDER BY subsidiary_count DESC
 LIMIT 15
 """.strip()
 
+SQL_FALLBACK_TOP_RETAIL_2023 = """
+SELECT VARIABLE_NAME AS category, SUM(RETAIL_SALES) AS total_sales
+FROM HACKATHON.DATA.V_RETAIL_SALES
+WHERE "DATE" BETWEEN '2023-01-01' AND '2023-12-31'
+  AND UNIT = 'USD'
+GROUP BY VARIABLE_NAME
+ORDER BY total_sales DESC
+LIMIT 10
+""".strip()
+
+SQL_FALLBACK_AEROSPACE_2019_2023 = """
+SELECT "DATE", AVG(PRODUCTION_INDEX) AS production_index
+FROM HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION
+WHERE (VARIABLE_NAME ILIKE '%Aerospace%' OR VARIABLE_NAME ILIKE '%Aircraft%')
+  AND "DATE" BETWEEN '2019-01-01' AND '2023-12-31'
+GROUP BY "DATE"
+ORDER BY "DATE"
+""".strip()
+
 
 def _wants_subsidiary_leaderboard(q: str) -> bool:
     t = q.lower()
     if "subsidiar" not in t:
         return False
     return any(k in t for k in ("most", "top", "largest", "many", "number", "count", "biggest"))
+
+
+def _fallback_sql_for_question(q: str) -> str | None:
+    t = q.lower()
+    if _wants_subsidiary_leaderboard(t):
+        return SQL_FALLBACK_MOST_SUBSIDIARIES
+    if "retail" in t and ("top" in t or "category" in t) and "2023" in t:
+        return SQL_FALLBACK_TOP_RETAIL_2023
+    if ("aerospace" in t or "aircraft" in t) and ("industrial production" in t or "production" in t):
+        return SQL_FALLBACK_AEROSPACE_2019_2023
+    return None
 
 
 # ── page ──────────────────────────────────────────────────────────────────
@@ -396,12 +426,11 @@ if question:
 
                 if sql:
                     df = run_sql(sql)
-                    if "Error" in df.columns and _wants_subsidiary_leaderboard(question):
-                        df = run_sql(SQL_FALLBACK_MOST_SUBSIDIARIES)
-                        sql = (
-                            SQL_FALLBACK_MOST_SUBSIDIARIES
-                            + "\n\n-- Note: Cortex Analyst SQL failed; ran verified subsidiary leaderboard query."
-                        )
+                    if "Error" in df.columns:
+                        fallback_sql = _fallback_sql_for_question(question)
+                        if fallback_sql:
+                            df = run_sql(fallback_sql)
+                            sql = fallback_sql + "\n\n-- Note: Cortex Analyst SQL failed; ran verified fallback query."
                     st.session_state.last_sql = sql
                     st.session_state.last_df = df
                     narrative = generate_narrative(question, df)
@@ -420,14 +449,28 @@ if question:
                         {"role": "assistant", "content": reply}
                     )
                 else:
-                    msg = (
-                        interpretation
-                        or "I couldn't generate SQL for that. Try rephrasing or use a suggested question."
-                    )
-                    st.session_state.messages.append({"role": "assistant", "content": msg})
-                    st.session_state.last_df = None
-                    st.session_state.last_sql = None
-                    st.session_state.last_interpretation = None
+                    fallback_sql = _fallback_sql_for_question(question)
+                    if fallback_sql:
+                        df = run_sql(fallback_sql)
+                        st.session_state.last_sql = (
+                            fallback_sql
+                            + "\n\n-- Note: Cortex Analyst did not return SQL; ran verified fallback query."
+                        )
+                        st.session_state.last_df = df
+                        narrative = generate_narrative(question, df)
+                        st.session_state.last_interpretation = narrative or interpretation
+                        st.session_state.messages.append(
+                            {"role": "assistant", "content": st.session_state.last_interpretation or "Here are the fallback results."}
+                        )
+                    else:
+                        msg = (
+                            interpretation
+                            or "I couldn't generate SQL for that. Try rephrasing or use a suggested question."
+                        )
+                        st.session_state.messages.append({"role": "assistant", "content": msg})
+                        st.session_state.last_df = None
+                        st.session_state.last_sql = None
+                        st.session_state.last_interpretation = None
         except Exception as e:  # noqa: BLE001
             st.session_state.messages.append(
                 {"role": "assistant", "content": f"Error: {e}"}
