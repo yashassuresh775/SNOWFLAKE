@@ -246,6 +246,50 @@ def _normalize_question(q: str) -> str:
     return t
 
 
+def _analyst_text_is_question_echo(text: str, question: str) -> bool:
+    """True when Analyst returns only a restatement of the user question (no real insight)."""
+    if not text or not question:
+        return False
+    t_raw = text.strip()
+    q_raw = question.strip()
+    tl = t_raw.lower()
+
+    tail = re.sub(
+        r"^(this is\s+)?(our\s+)?interpretation of your question\s*[\n:—\-]+\s*",
+        "",
+        tl,
+        flags=re.I,
+    ).strip()
+    if tail == tl:
+        tail = tl
+        for marker in (
+            "interpretation of your question",
+            "our interpretation of your question",
+            "our interpretation",
+        ):
+            if marker in tl:
+                idx = tl.find(marker)
+                after = tl[idx + len(marker) :].lstrip(" \t:-—\n")
+                if after:
+                    tail = after
+                break
+
+    tnorm = _normalize_question(tail)
+    qnorm = _normalize_question(q_raw)
+    if len(tnorm) < 8:
+        return False
+    if tnorm == qnorm:
+        return True
+    if tnorm in qnorm or qnorm in tnorm:
+        return True
+    tw, qw = set(tnorm.split()), set(qnorm.split())
+    if tw and qw and len(tw | qw) > 0:
+        overlap = len(tw & qw) / max(len(tw), len(qw))
+        if overlap >= 0.82:
+            return True
+    return _normalize_question(t_raw) == qnorm
+
+
 def _has_any(text: str, words: tuple[str, ...]) -> bool:
     return any(w in text for w in words)
 
@@ -321,8 +365,23 @@ def _fallback_sql_for_question(q: str) -> str | None:
         return SQL_FALLBACK_AEROSPACE_2019_2023
 
     # CPI / GDP (headline series views)
-    if _has_any(t, ("cpi", "consumer price", "inflation")) and _has_any(t, ("monthly", "trend", "2019", "2024", "show")):
-        if "gdp" not in t and "unemployment" not in t:
+    if _has_any(t, ("cpi", "consumer price", "inflation")) and "gdp" not in t and "unemployment" not in t:
+        if _has_any(
+            t,
+            (
+                "monthly",
+                "trend",
+                "2019",
+                "2020",
+                "2021",
+                "2022",
+                "2023",
+                "2024",
+                "show",
+                "index",
+                "headline",
+            ),
+        ):
             return SQL_FALLBACK_CPI_MONTHLY_2019_2024
     if "gdp" in t or "gross domestic product" in t:
         if _has_any(t, ("quarter", "last 5", "five year", "5 year", "trend", "show")):
@@ -711,7 +770,7 @@ html, body, [class*="css"] {
 }
 section.main > div.block-container {
     max-width: min(1480px, 100%) !important;
-    padding: 1rem 1.75rem 2.5rem 1.75rem !important;
+    padding: 0.5rem 1rem 1rem 1rem !important;
 }
 /* Sidebar */
 [data-testid="stSidebar"] {
@@ -781,11 +840,11 @@ section.main > div.block-container {
 /* Glass / bordered panels */
 div[data-testid="stVerticalBlockBorderWrapper"] {
     background: var(--dm-surface) !important;
-    border-radius: 14px !important;
+    border-radius: 12px !important;
     border: 1px solid var(--dm-border) !important;
     box-shadow: var(--dm-shadow), var(--dm-shadow-inset) !important;
-    margin-bottom: 1rem !important;
-    padding: 14px 16px 18px 16px !important;
+    margin-bottom: 0.5rem !important;
+    padding: 8px 10px 10px 10px !important;
     transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
 }
 div[data-testid="stVerticalBlockBorderWrapper"]:hover {
@@ -890,6 +949,77 @@ div[data-testid="stTabs"] [role="tablist"] button[aria-selected="true"] {
     border-color: var(--dm-sky) !important;
     box-shadow: 0 0 0 2px var(--dm-glow) !important;
 }
+/* Main ask form — aligned row, no broken button label, single input chrome */
+form[data-testid="stForm"] {
+    border: 1px solid rgba(167, 139, 250, 0.22) !important;
+    border-radius: 14px !important;
+    padding: 10px 12px 10px 12px !important;
+    margin: 0 0 6px 0 !important;
+    background: linear-gradient(165deg, rgba(30, 27, 75, 0.28), rgba(15, 23, 42, 0.45)) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+form[data-testid="stForm"] > div[data-testid="stVerticalBlockBorderWrapper"] {
+    padding-bottom: 0 !important;
+    gap: 0 !important;
+}
+form[data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+    width: 100% !important;
+}
+form[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
+form[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-child {
+    flex: 0 0 auto !important;
+    min-width: 10.5rem !important;
+    max-width: 14rem !important;
+}
+form[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+}
+form[data-testid="stForm"] div[data-testid="stTextInput"] {
+    margin-bottom: 0 !important;
+}
+form[data-testid="stForm"] div[data-testid="stTextInput"] [data-baseweb="input"] {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+form[data-testid="stForm"] div[data-testid="stTextInput"] input {
+    min-height: 48px !important;
+    font-size: 15px !important;
+    line-height: 1.35 !important;
+    border: 1px solid var(--dm-border2) !important;
+    border-radius: 11px !important;
+    background: var(--dm-bg-mid) !important;
+    box-shadow: none !important;
+}
+form[data-testid="stForm"] div[data-testid="stTextInput"] input:focus {
+    border-color: var(--dm-sky) !important;
+    box-shadow: 0 0 0 2px var(--dm-glow) !important;
+}
+form[data-testid="stForm"] [data-testid="stFormSubmitButton"] button,
+form[data-testid="stForm"] button[kind="primary"] {
+    white-space: nowrap !important;
+    width: 100% !important;
+    min-height: 48px !important;
+    height: 100% !important;
+    border-radius: 11px !important;
+    font-weight: 600 !important;
+    font-size: 0.9375rem !important;
+    letter-spacing: 0.02em !important;
+    padding: 0 1.1rem !important;
+    line-height: 1.2 !important;
+}
 /* Radio */
 div[data-testid="stRadio"] label {
     color: var(--dm-muted) !important;
@@ -902,7 +1032,7 @@ div[data-testid="stRadio"] [role="radiogroup"] label[data-baseweb="radio"] {
     color: inherit;
 }
 hr {
-    margin: 1.25rem 0 !important;
+    margin: 0.5rem 0 !important;
     border: none !important;
     height: 1px !important;
     background: linear-gradient(90deg, transparent, var(--dm-border), transparent) !important;
@@ -981,6 +1111,34 @@ div[data-testid="stDataFrame"] {
     line-height: 1.65;
     color: var(--dm-muted);
     padding-left: 10px;
+}
+.ei-narrative-card--compact {
+    padding: 8px 10px !important;
+    margin-bottom: 6px !important;
+}
+.ei-narrative-card--compact .ei-narrative-head {
+    margin-bottom: 4px !important;
+    padding-left: 6px !important;
+}
+.ei-narrative-card--compact .ei-narrative-kicker {
+    font-size: 10px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dm-sky) !important;
+}
+.ei-narrative-card--compact .ei-narrative-badge {
+    font-size: 9px !important;
+    padding: 2px 8px !important;
+}
+.ei-narrative-card--compact .ei-narrative-body {
+    font-size: 12px !important;
+    line-height: 1.5 !important;
+    padding-left: 6px !important;
+}
+.section-label--tight {
+    font-size: 10px !important;
+    margin-bottom: 4px !important;
+    margin-top: 2px !important;
 }
 @keyframes ei-card-in {
     from { opacity: 0; transform: translateY(8px); }
@@ -1161,9 +1319,9 @@ div[data-testid="stDataFrame"] {
     to { opacity: 1; transform: translateX(0); }
 }
 .welcome-hero-shell {
-    border-radius: 14px;
-    padding: 22px 24px 20px 24px;
-    margin-bottom: 18px;
+    border-radius: 12px;
+    padding: 12px 16px 12px 16px;
+    margin-bottom: 8px;
     background: linear-gradient(135deg, var(--dm-surface2) 0%, var(--dm-surface) 100%);
     border: 1px solid var(--dm-border);
     box-shadow: var(--dm-shadow);
@@ -1177,17 +1335,17 @@ div[data-testid="stDataFrame"] {
     animation: welcome-line-in 0.5s ease-out 0.08s both;
 }
 .welcome-hero-title {
-    font-size: 21px;
+    font-size: 16px;
     font-weight: 700;
-    line-height: 1.3;
-    margin: 0 0 10px 0;
+    line-height: 1.25;
+    margin: 0 0 6px 0;
     color: var(--dm-text);
     animation: welcome-line-in 0.55s ease-out 0.18s both;
 }
 .welcome-hero-body {
-    font-size: 15px;
+    font-size: 13px;
     color: var(--dm-muted);
-    line-height: 1.55;
+    line-height: 1.45;
     margin: 0 0 14px 0;
     max-width: 640px;
     animation: welcome-line-in 0.55s ease-out 0.28s both;
@@ -1216,14 +1374,15 @@ div[data-testid="stDataFrame"] {
 }
 .welcome-back-strip {
     animation: welcome-back-in 0.45s ease-out both;
-    border-radius: 12px;
-    padding: 12px 18px;
-    margin-bottom: 14px;
+    border-radius: 10px;
+    padding: 8px 12px;
+    margin-bottom: 6px;
     background: var(--dm-surface2);
     border: 1px solid var(--dm-border);
-    font-size: 14px;
+    font-size: 12px;
     color: var(--dm-muted);
     font-weight: 500;
+    line-height: 1.35;
 }
 .welcome-back-strip strong { color: var(--dm-text); }
 /* Charts */
@@ -1255,14 +1414,16 @@ div[data-testid="stDataFrame"] {
     line-height: 1.5;
     color: var(--dm-muted);
 }
+/* Stacked layout: label on its own row so narrow sidebars don’t crush description text */
 .persona-hint-row {
-    display: flex;
-    gap: 10px;
-    align-items: baseline;
-    margin: 2px 0;
-    padding: 8px 10px;
+    display: block;
+    margin: 10px 0 0 0;
+    padding: 10px 12px;
     border-radius: 8px;
     border: 1px solid transparent;
+}
+.persona-hint-row:first-child {
+    margin-top: 0;
 }
 .persona-hint-row:hover {
     background: var(--dm-surface2);
@@ -1272,23 +1433,32 @@ div[data-testid="stDataFrame"] {
     border: 1px solid rgba(41, 181, 232, 0.35) !important;
 }
 .persona-hint-name {
-    flex: 0 0 92px;
+    display: block;
     font-weight: 700;
     color: var(--dm-sky);
     font-size: 10px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
+    margin-bottom: 6px;
+    line-height: 1.3;
 }
-.persona-hint-text { flex: 1; min-width: 0; }
+.persona-hint-text {
+    display: block;
+    width: 100%;
+    font-size: 13px;
+    line-height: 1.55;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+}
 /* Executive BI Copilot chrome (violet + glass) */
 .ei-topnav {
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
-    gap: 10px 16px;
-    padding: 12px 18px;
-    margin: 0 0 14px 0;
+    gap: 8px 12px;
+    padding: 8px 14px;
+    margin: 0 0 8px 0;
     background: linear-gradient(105deg, rgba(88, 28, 135, 0.22), rgba(30, 27, 75, 0.45));
     border: 1px solid rgba(167, 139, 250, 0.28);
     border-radius: 14px;
@@ -1346,9 +1516,9 @@ div[data-testid="stDataFrame"] {
     font-weight: 600;
 }
 .ei-hero-copilot {
-    padding: 18px 22px 16px;
-    margin: 0 0 14px 0;
-    border-radius: 16px;
+    padding: 12px 16px 12px;
+    margin: 0 0 8px 0;
+    border-radius: 14px;
     background: linear-gradient(135deg, rgba(30, 27, 75, 0.55), rgba(15, 23, 42, 0.75));
     border: 1px solid rgba(167, 139, 250, 0.22);
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
@@ -1366,18 +1536,18 @@ div[data-testid="stDataFrame"] {
     pointer-events: none;
 }
 .ei-hero-title {
-    font-size: clamp(22px, 3.2vw, 30px);
+    font-size: clamp(17px, 2.4vw, 22px);
     font-weight: 800;
     letter-spacing: -0.03em;
     color: var(--dm-ice);
-    margin: 0 0 6px 0;
-    line-height: 1.15;
+    margin: 0 0 4px 0;
+    line-height: 1.2;
 }
 .ei-hero-sub {
-    font-size: 15px;
+    font-size: 13px;
     color: var(--dm-muted);
     margin: 0;
-    line-height: 1.45;
+    line-height: 1.4;
 }
 .ei-hero-badge {
     position: absolute;
@@ -1391,6 +1561,41 @@ div[data-testid="stDataFrame"] {
     background: linear-gradient(90deg, #a78bfa, #29b5e8);
     padding: 5px 10px;
     border-radius: 8px;
+}
+/* Right insight rail — single compact identity block */
+.ei-rail-identity {
+    padding: 8px 10px 10px;
+    border-radius: 10px;
+    background: rgba(30, 27, 75, 0.35);
+    border: 1px solid rgba(167, 139, 250, 0.22);
+    margin-bottom: 8px;
+}
+.ei-rail-identity-top {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #a78bfa;
+    margin: 0 0 2px 0;
+}
+.ei-rail-identity-name {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--dm-ice);
+    line-height: 1.25;
+    margin: 0;
+}
+.ei-rail-query-inline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 6px 8px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(167, 139, 250, 0.14);
+    font-size: 11px;
+    color: var(--dm-muted);
+    line-height: 1.35;
 }
 .ei-ai-card {
     padding: 14px 16px;
@@ -1443,6 +1648,28 @@ div[data-testid="stDataFrame"] {
 }
 .ei-empty-state .ei-empty-copy strong {
     color: var(--dm-ice);
+}
+.ei-empty-state--compact {
+    padding: 1.1rem 0.85rem !important;
+}
+.ei-empty-state--compact .ei-empty-icon {
+    font-size: 32px !important;
+    margin-bottom: 6px !important;
+}
+.ei-empty-state--compact .ei-empty-title {
+    font-size: 14px !important;
+    margin-bottom: 4px !important;
+}
+.ei-empty-state--compact .ei-empty-copy {
+    font-size: 12px !important;
+    line-height: 1.45 !important;
+}
+.ei-ask-head {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--dm-text);
+    margin: 0 0 6px 0;
+    letter-spacing: -0.02em;
 }
 details summary {
     font-weight: 600 !important;
@@ -1513,18 +1740,19 @@ def _render_persona_hints(selected: str) -> None:
         hint = html.escape(PERSONA_UI_HINTS[name])
         cls = "persona-hint-row persona-hint-active" if name == selected else "persona-hint-row"
         parts.append(
-            f'<div class="{cls}"><span class="persona-hint-name">{html.escape(name)}</span>'
-            f'<span class="persona-hint-text">{hint}</span></div>'
+            f'<div class="{cls}"><div class="persona-hint-name">{html.escape(name)}</div>'
+            f'<div class="persona-hint-text">{hint}</div></div>'
         )
     parts.append("</div>")
     st.markdown("".join(parts), unsafe_allow_html=True)
 
 
-def _render_narrative_card(text: str) -> None:
+def _render_narrative_card(text: str, *, compact: bool = False) -> None:
     """LLM summary with product-style framing (not default st.info)."""
     safe = html.escape(text.strip()).replace("\n", "<br/>")
+    card_cls = "ei-narrative-card ei-narrative-card--compact" if compact else "ei-narrative-card"
     st.markdown(
-        '<div class="ei-narrative-card">'
+        f'<div class="{card_cls}">'
         '<div class="ei-narrative-head">'
         '<span class="ei-narrative-kicker">Narrative</span>'
         '<span class="ei-narrative-badge">Cortex COMPLETE</span></div>'
@@ -1952,6 +2180,8 @@ if "last_ambiguity_warnings" not in st.session_state:
     st.session_state.last_ambiguity_warnings = []
 if "last_debug_payload" not in st.session_state:
     st.session_state.last_debug_payload = None
+if "ei_top_nav" not in st.session_state:
+    st.session_state.ei_top_nav = "dashboard"
 
 def _glass_panel():
     """Frosted panel wrapper; uses container(border=…) when the runtime supports it."""
@@ -1959,6 +2189,233 @@ def _glass_panel():
         return st.container(border=True)
     return st.container()
 
+
+def _render_session_chat_bubbles(*, empty_hint: str, bubbles_off_intro: str) -> None:
+    msgs = st.session_state.get("messages") or []
+    if not msgs:
+        st.caption(empty_hint)
+        return
+    if st.session_state.get("ei_show_bubbles", True):
+        for msg in msgs:
+            if msg["role"] == "user":
+                st.markdown(
+                    f'<div class="user-bubble">{html.escape(msg["content"])}</div>'
+                    '<div class="clearfix"></div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f'<div class="ai-bubble">{html.escape(msg["content"])}</div>'
+                    '<div class="clearfix"></div>',
+                    unsafe_allow_html=True,
+                )
+    else:
+        st.caption(bubbles_off_intro)
+        for msg in msgs:
+            role = "You" if msg.get("role") == "user" else "Assistant"
+            safe_txt = html.escape(str(msg.get("content", ""))).replace("\n", "<br/>")
+            st.markdown(f"**{role}**  \n{safe_txt}", unsafe_allow_html=True)
+
+
+def _render_chat_history_page() -> None:
+    with _glass_panel():
+        st.markdown(
+            '<div class="section-label-lg">Chat history</div>',
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Full session thread (same data as **Dashboard**). Download the transcript from the **sidebar**."
+        )
+        chat_container = st.container(height=520)
+        with chat_container:
+            _render_session_chat_bubbles(
+                empty_hint="No messages yet — go to **Dashboard** and ask a question.",
+                bubbles_off_intro="Bubbles off (sidebar) — plain text:",
+            )
+
+
+def _render_dashboard_layout() -> tuple[bool, str]:
+    submitted = False
+    user_input = ""
+    _left_col, _center_col, _right_col = st.columns([5, 10, 6], gap="medium")
+
+    with _left_col:
+        with _glass_panel():
+            st.selectbox(
+                "Workspace",
+                ["Economic analytics", "Company relationships"],
+                key="ei_workspace",
+                help="Organizes starter prompts; both use the same semantic model today.",
+            )
+            st.markdown(
+                '<div class="section-label" style="margin-top:4px">Example questions</div>',
+                unsafe_allow_html=True,
+            )
+            _render_vertical_examples(EXAMPLE_QUICK, "ex_left")
+            with st.expander("More starter prompts (tabs)", expanded=False):
+                tab_core, tab_pg, tab_wide, tab_co = st.tabs(
+                    ["Macro", "CPI/GDP", "Wide", "Cos."]
+                )
+                with tab_core:
+                    _render_suggestion_chips(SUGGESTED_CORE, "sug_core")
+                with tab_pg:
+                    _render_suggestion_chips(SUGGESTED_PRICES_GDP, "sug_pg")
+                with tab_wide:
+                    _render_suggestion_chips(SUGGESTED_MACRO_WIDE, "sug_wide")
+                with tab_co:
+                    _render_suggestion_chips(SUGGESTED_COMPANIES, "sug_co")
+            st.selectbox(
+                "Response voice",
+                list(PERSONAS.keys()),
+                key="persona_perspective",
+                help="Tone for Cortex COMPLETE summaries.",
+            )
+            with st.expander("Voice details", expanded=False):
+                _render_persona_hints(
+                    st.session_state.get("persona_perspective") or list(PERSONAS.keys())[0]
+                )
+
+    with _center_col:
+        with _glass_panel():
+            st.markdown(
+                '<div class="ei-ask-head">Ask &amp; analyze</div>',
+                unsafe_allow_html=True,
+            )
+            with st.expander("Conversation thread", expanded=False):
+                chat_container = st.container(height=200)
+                with chat_container:
+                    _render_session_chat_bubbles(
+                        empty_hint="Messages appear here after you ask.",
+                        bubbles_off_intro="Bubbles hidden — see **Sidebar → Full chat transcript**:",
+                    )
+
+            with st.form("chat_form", clear_on_submit=True):
+                _qrow1, _qrow2 = st.columns([7, 3], gap="small")
+                with _qrow1:
+                    user_input = st.text_input(
+                        "Your question",
+                        placeholder="Ask anything, e.g. monthly CPI 2019–2024…",
+                        label_visibility="collapsed",
+                    )
+                with _qrow2:
+                    submitted = st.form_submit_button(
+                        "Run analysis",
+                        use_container_width=True,
+                        type="primary",
+                    )
+
+            if st.session_state.last_df is not None:
+                _ldf = st.session_state.last_df
+                _dc, _vc = _time_series_cols(_ldf)
+                if _dc and _vc:
+                    _ci = _correlation_insight_line(_ldf, _dc, _vc)
+                    if _ci:
+                        with st.expander("Cross-indicator note", expanded=False):
+                            st.markdown(_ci)
+                with st.container(height=220):
+                    render_chart(_ldf, st.session_state.get("last_user_question") or "")
+                _tbl_col, _tab_col = st.columns([1, 1], gap="small")
+                with _tbl_col:
+                    st.markdown(
+                        '<div class="section-label section-label--tight" style="margin-top:4px">Data</div>',
+                        unsafe_allow_html=True,
+                    )
+                    st.dataframe(_ldf, use_container_width=True, height=220)
+                with _tab_col:
+                    st.markdown(
+                        '<div class="section-label section-label--tight" style="margin-top:4px">Technical</div>',
+                        unsafe_allow_html=True,
+                    )
+                    t_sql, t_dbg, t_fu = st.tabs(["SQL", "Debug", "Follow-ups"])
+                    with t_sql:
+                        if st.session_state.last_sql:
+                            safe_sql = html.escape(st.session_state.last_sql)
+                            st.markdown(f'<div class="sql-box">{safe_sql}</div>', unsafe_allow_html=True)
+                        else:
+                            st.caption("No SQL in this turn.")
+                    with t_dbg:
+                        _dbg = st.session_state.get("last_debug_payload")
+                        if _dbg:
+                            st.code(_dbg, language="json")
+                        else:
+                            st.caption("Run a query to capture the last Analyst response payload.")
+                    with t_fu:
+                        if st.session_state.last_followups:
+                            for _i, _fq in enumerate(st.session_state.last_followups):
+                                if st.button(_fq, key=f"fu_tab_{_i}", use_container_width=True):
+                                    st.session_state.pending_question = _fq
+                                    st.rerun()
+                        else:
+                            st.caption("Follow-ups appear after a successful analysis.")
+                _pdf = build_brief_pdf_bytes(
+                    st.session_state.last_user_question or "US Economic Intelligence — analyst brief",
+                    st.session_state.last_interpretation or "",
+                    st.session_state.last_sql or "",
+                    _ldf,
+                )
+                if _pdf:
+                    st.download_button(
+                        label="Export brief (PDF)",
+                        data=_pdf,
+                        file_name=f"economic_brief_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                        mime="application/pdf",
+                        key="download_brief_pdf",
+                    )
+            else:
+                st.markdown(
+                    """
+    <div class="ei-empty-state ei-empty-state--compact">
+      <div class="ei-empty-icon" aria-hidden="true">📈</div>
+      <div class="ei-empty-title">No analysis yet</div>
+      <div class="ei-empty-copy">
+        Use the question bar or an <strong>Example question</strong> on the left.
+      </div>
+    </div>
+    """,
+                    unsafe_allow_html=True,
+                )
+
+    with _right_col:
+        with _glass_panel():
+            _rail_bits: list[str] = [
+                '<div class="ei-rail-identity">',
+                '<div class="ei-rail-identity-top">Source</div>',
+                '<div class="ei-rail-identity-name">AI Analyst · Cortex Analyst + COMPLETE</div>',
+            ]
+            if st.session_state.get("last_query_class"):
+                _qc = html.escape(str(st.session_state.last_query_class))
+                _qd = html.escape(str(st.session_state.last_query_class_desc))
+                _rail_bits.append(
+                    '<div class="ei-rail-query-inline">'
+                    f'<span class="ei-query-badge">{_qc}</span>'
+                    f'<span class="ei-query-desc">{_qd}</span></div>'
+                )
+            _rail_bits.append("</div>")
+            st.markdown("".join(_rail_bits), unsafe_allow_html=True)
+            for _warn in st.session_state.get("last_ambiguity_warnings") or []:
+                st.warning(_warn)
+            if st.session_state.last_df is not None and st.session_state.last_interpretation:
+                st.markdown(
+                    '<div class="section-label section-label--tight">Interpretation</div>',
+                    unsafe_allow_html=True,
+                )
+                with st.container(height=172):
+                    _render_narrative_card(st.session_state.last_interpretation, compact=True)
+            elif st.session_state.last_df is not None:
+                st.caption("No narrative this turn — see **Conversation thread**.")
+            else:
+                st.caption("Interpretation appears after you run an analysis.")
+            with st.expander("Suggested follow-ups", expanded=False):
+                if st.session_state.last_followups:
+                    for i, fq in enumerate(st.session_state.last_followups):
+                        if st.button(fq, key=f"fu_rail_{i}", use_container_width=True):
+                            st.session_state.pending_question = fq
+                            st.rerun()
+                else:
+                    st.caption("Run a query for ideas.")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    return submitted, user_input
 
 # ══════════════════════════════════════════════════════════════════════════
 #  LAYOUT
@@ -1970,7 +2427,9 @@ if session is None:
 
 with st.sidebar:
     st.markdown("### Chat & session")
-    st.caption("History is for this browser session only (Streamlit state).")
+    st.caption(
+        "History is this browser session only. Use **Chat history** (top) for a full-page thread, or expand **Full chat transcript** below."
+    )
     st.checkbox("Show conversation bubbles", value=True, key="ei_show_bubbles")
     hist_lines: list[str] = []
     for _m in st.session_state.get("messages", []):
@@ -1998,6 +2457,7 @@ with st.sidebar:
         st.session_state.last_ambiguity_warnings = []
         st.session_state.pending_question = None
         st.session_state.last_debug_payload = None
+        st.session_state.ei_top_nav = "dashboard"
         st.rerun()
 
 _now_nav = html.escape(datetime.now().strftime("%I:%M %p"))
@@ -2006,9 +2466,23 @@ st.markdown(
 <div class="ei-topnav">
   <div class="ei-topnav-brand"><div class="ei-logo-rings" aria-hidden="true"></div>
     <span>Executive BI Copilot</span></div>
-  <div class="ei-topnav-links"><span class="ei-topnav-link-active">Dashboard</span><span>History</span><span>Team</span></div>
   <div class="ei-topnav-meta"><span class="ei-topnav-time">{_now_nav}</span><span>Snowflake · Cortex</span></div>
 </div>
+""",
+    unsafe_allow_html=True,
+)
+_nv1, _nv2, _nv3 = st.columns([1, 3, 1])
+with _nv2:
+    st.radio(
+        "Primary view",
+        ["dashboard", "history"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="ei_top_nav",
+        format_func=lambda x: "Dashboard" if x == "dashboard" else "Chat history",
+    )
+st.markdown(
+    """
 <div class="ei-hero-copilot">
   <span class="ei-hero-badge">Live</span>
   <p class="ei-hero-title">💡 US Economic Intelligence</p>
@@ -2021,227 +2495,15 @@ st.markdown(
 _render_welcome_hero()
 _render_welcome_back_strip()
 
-with _glass_panel():
-    st.caption(
-        "At-a-glance: what this app can query. Hover each **?** for the full table or view name."
-    )
-    m1, m2, m3, m4 = st.columns(4, gap="small")
-    with m1:
-        st.metric(
-            "Logical tables",
-            "8 domains",
-            help="Eight semantic tables in the YAML: unemployment, retail, rates, industrial, CPI, GDP, macro_wide, company graph.",
-        )
-    with m2:
-        st.metric(
-            "Join panel",
-            "EI wide view",
-            help="SQL: HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE — one timeline for unemployment, CPI, retail, rates, IP, GDP.",
-        )
-    with m3:
-        st.metric(
-            "Prices & GDP",
-            "CPI · GDP",
-            help="Headline series: V_CPI (monthly) and V_GDP (quarterly) in the semantic model.",
-        )
-    with m4:
-        st.metric(
-            "Company graph",
-            "Parent → sub",
-            help="V_COMPANY_RELATIONSHIPS: parent company to subsidiary rows (Cybersyn-style entity graph).",
-        )
-
 st.divider()
 
 query_progress = st.empty()
 
-# Executive BI–style layout: examples | analysis + chart + table/tabs | insight rail
-_left_col, _center_col, _right_col = st.columns([5, 10, 6], gap="medium")
-
-with _left_col:
-    with _glass_panel():
-        st.selectbox(
-            "Workspace",
-            ["Economic analytics", "Company relationships"],
-            key="ei_workspace",
-            help="Organizes starter prompts; both use the same semantic model today.",
-        )
-        st.markdown(
-            '<div class="section-label" style="margin-top:4px">Example questions</div>',
-            unsafe_allow_html=True,
-        )
-        _render_vertical_examples(EXAMPLE_QUICK, "ex_left")
-        with st.expander("More starter prompts (tabs)", expanded=False):
-            tab_core, tab_pg, tab_wide, tab_co = st.tabs(
-                ["Macro", "CPI/GDP", "Wide", "Cos."]
-            )
-            with tab_core:
-                _render_suggestion_chips(SUGGESTED_CORE, "sug_core")
-            with tab_pg:
-                _render_suggestion_chips(SUGGESTED_PRICES_GDP, "sug_pg")
-            with tab_wide:
-                _render_suggestion_chips(SUGGESTED_MACRO_WIDE, "sug_wide")
-            with tab_co:
-                _render_suggestion_chips(SUGGESTED_COMPANIES, "sug_co")
-        st.selectbox(
-            "Response voice",
-            list(PERSONAS.keys()),
-            key="persona_perspective",
-            help="Tone for Cortex COMPLETE summaries.",
-        )
-        with st.expander("Voice details", expanded=False):
-            _render_persona_hints(
-                st.session_state.get("persona_perspective") or list(PERSONAS.keys())[0]
-            )
-
-with _center_col:
-    with _glass_panel():
-        st.markdown(
-            '<div class="section-label-lg">Ask &amp; analyze</div>',
-            unsafe_allow_html=True,
-        )
-        st.caption("Run a question — chart, data, and SQL appear below.")
-        with st.expander("Conversation thread", expanded=False):
-            chat_container = st.container(height=260)
-            with chat_container:
-                if st.session_state.get("ei_show_bubbles", True):
-                    for msg in st.session_state.messages:
-                        if msg["role"] == "user":
-                            st.markdown(
-                                f'<div class="user-bubble">{html.escape(msg["content"])}</div>'
-                                '<div class="clearfix"></div>',
-                                unsafe_allow_html=True,
-                            )
-                        else:
-                            st.markdown(
-                                f'<div class="ai-bubble">{html.escape(msg["content"])}</div>'
-                                '<div class="clearfix"></div>',
-                                unsafe_allow_html=True,
-                            )
-                elif not st.session_state.messages:
-                    st.caption("Messages appear here after you ask.")
-                else:
-                    st.caption("Bubbles hidden — see **Sidebar → Full chat transcript**.")
-
-        with st.form("chat_form", clear_on_submit=True):
-            _qrow1, _qrow2 = st.columns([5, 1])
-            with _qrow1:
-                user_input = st.text_input(
-                    "Your question",
-                    placeholder="e.g. Show inflation trend over time…",
-                    label_visibility="collapsed",
-                )
-            with _qrow2:
-                st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
-                submitted = st.form_submit_button("Run analysis", use_container_width=True, type="primary")
-
-        if st.session_state.last_df is not None:
-            _ldf = st.session_state.last_df
-            _dc, _vc = _time_series_cols(_ldf)
-            if _dc and _vc:
-                _ci = _correlation_insight_line(_ldf, _dc, _vc)
-                if _ci:
-                    st.markdown(_ci)
-            render_chart(_ldf, st.session_state.get("last_user_question") or "")
-            _tbl_col, _tab_col = st.columns([1, 1], gap="small")
-            with _tbl_col:
-                st.markdown(
-                    '<div class="section-label" style="margin-top:8px">Data</div>',
-                    unsafe_allow_html=True,
-                )
-                st.dataframe(_ldf, use_container_width=True, height=280)
-            with _tab_col:
-                st.markdown(
-                    '<div class="section-label" style="margin-top:8px">Technical</div>',
-                    unsafe_allow_html=True,
-                )
-                t_sql, t_dbg, t_fu = st.tabs(["SQL", "Debug", "Follow-ups"])
-                with t_sql:
-                    if st.session_state.last_sql:
-                        safe_sql = html.escape(st.session_state.last_sql)
-                        st.markdown(f'<div class="sql-box">{safe_sql}</div>', unsafe_allow_html=True)
-                    else:
-                        st.caption("No SQL in this turn.")
-                with t_dbg:
-                    _dbg = st.session_state.get("last_debug_payload")
-                    if _dbg:
-                        st.code(_dbg, language="json")
-                    else:
-                        st.caption("Run a query to capture the last Analyst response payload.")
-                with t_fu:
-                    if st.session_state.last_followups:
-                        for _i, _fq in enumerate(st.session_state.last_followups):
-                            if st.button(_fq, key=f"fu_tab_{_i}", use_container_width=True):
-                                st.session_state.pending_question = _fq
-                                st.rerun()
-                    else:
-                        st.caption("Follow-ups appear after a successful analysis.")
-            _pdf = build_brief_pdf_bytes(
-                st.session_state.last_user_question or "US Economic Intelligence — analyst brief",
-                st.session_state.last_interpretation or "",
-                st.session_state.last_sql or "",
-                _ldf,
-            )
-            if _pdf:
-                st.download_button(
-                    label="Export brief (PDF)",
-                    data=_pdf,
-                    file_name=f"economic_brief_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                    mime="application/pdf",
-                    key="download_brief_pdf",
-                )
-        else:
-            st.markdown(
-                """
-<div class="ei-empty-state">
-  <div class="ei-empty-icon" aria-hidden="true">📈</div>
-  <div class="ei-empty-title">No analysis yet</div>
-  <div class="ei-empty-copy">
-    Enter a question above or pick an <strong>Example question</strong> on the left. Starter tabs hold more prompts.
-  </div>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
-
-with _right_col:
-    with _glass_panel():
-        st.markdown(
-            '<div class="ei-ai-card"><p class="ei-ai-card-title">Source</p>'
-            '<p class="ei-ai-card-name">AI Analyst · Cortex Analyst + COMPLETE</p></div>',
-            unsafe_allow_html=True,
-        )
-        if st.session_state.get("last_query_class"):
-            _qc = html.escape(str(st.session_state.last_query_class))
-            _qd = html.escape(str(st.session_state.last_query_class_desc))
-            st.markdown(
-                f'<div class="ei-query-meta"><span class="ei-query-badge">{_qc}</span>'
-                f'<span class="ei-query-desc">{_qd}</span></div>',
-                unsafe_allow_html=True,
-            )
-        for _warn in st.session_state.get("last_ambiguity_warnings") or []:
-            st.warning(_warn)
-        if st.session_state.last_df is not None and st.session_state.last_interpretation:
-            st.markdown(
-                '<div class="section-label">Interpretation</div>',
-                unsafe_allow_html=True,
-            )
-            _render_narrative_card(st.session_state.last_interpretation)
-        elif st.session_state.last_df is not None:
-            st.caption("Results loaded — no narrative text for this turn. Check the conversation thread.")
-        else:
-            st.caption("Insight and executive-style narrative appear here after you run an analysis.")
-        st.markdown(
-            '<div class="section-label" style="margin-top:12px">Suggested follow-ups</div>',
-            unsafe_allow_html=True,
-        )
-        if st.session_state.last_followups:
-            for i, fq in enumerate(st.session_state.last_followups):
-                if st.button(fq, key=f"fu_rail_{i}", use_container_width=True):
-                    st.session_state.pending_question = fq
-                    st.rerun()
-        else:
-            st.caption("Run a query to see contextual follow-up ideas.")
+if st.session_state.get("ei_top_nav", "dashboard") == "dashboard":
+    submitted, user_input = _render_dashboard_layout()
+else:
+    submitted, user_input = False, ""
+    _render_chat_history_page()
 
 # ══════════════════════════════════════════════════════════════════════════
 #  PROCESS QUESTION
@@ -2296,12 +2558,26 @@ if question:
                 query_progress.empty()
             else:
                 sql = None
-                interpretation = None
+                interpretation = ""
                 for block in response.get("message", {}).get("content", []):
                     if block.get("type") == "sql":
-                        sql = block.get("statement") or block.get("sql")
+                        if not sql:
+                            sql = (
+                                block.get("statement")
+                                or block.get("sql")
+                                or block.get("query")
+                            )
                     elif block.get("type") == "text":
-                        interpretation = block.get("text", "")
+                        tx = (block.get("text") or "").strip()
+                        if tx:
+                            interpretation = tx
+                interpretation = interpretation.strip() if interpretation else None
+                _clean_analyst_text = (
+                    interpretation
+                    if interpretation
+                    and not _analyst_text_is_question_echo(interpretation, question_for_model)
+                    else None
+                )
 
                 if sql:
                     _progress_step("Running generated SQL in your Snowflake warehouse…")
@@ -2323,8 +2599,10 @@ if question:
                     digest = _result_digest(df)
                     if narrative:
                         st.session_state.last_interpretation = narrative
-                    elif interpretation:
-                        st.session_state.last_interpretation = interpretation
+                    elif _clean_analyst_text:
+                        st.session_state.last_interpretation = _clean_analyst_text
+                    elif digest:
+                        st.session_state.last_interpretation = f"**Data summary**  \n{digest}"
                     else:
                         st.session_state.last_interpretation = None
                     _progress_step("Generating smart follow-up suggestions…")
@@ -2333,7 +2611,7 @@ if question:
                     st.session_state.last_followups = merge_followup_lists(_llm_fu, _heur_fu, 6)
                     reply = (
                         narrative
-                        or interpretation
+                        or _clean_analyst_text
                         or "Here are the results — see the chart and data."
                     )
                     if digest:
@@ -2358,17 +2636,28 @@ if question:
                         st.session_state.last_df = df
                         _progress_step("Summarizing fallback results…")
                         narrative = generate_narrative(
-                            question,
+                            question_for_model,
                             df,
                             st.session_state.get("persona_perspective") or "Executive",
                         )
                         digest = _result_digest(df)
-                        st.session_state.last_interpretation = narrative or interpretation
+                        if narrative:
+                            st.session_state.last_interpretation = narrative
+                        elif _clean_analyst_text:
+                            st.session_state.last_interpretation = _clean_analyst_text
+                        elif digest:
+                            st.session_state.last_interpretation = f"**Data summary**  \n{digest}"
+                        else:
+                            st.session_state.last_interpretation = None
                         _progress_step("Generating smart follow-up suggestions…")
                         _llm_fu2 = generate_followups(question_for_model, df)
                         _heur_fu2 = heuristic_followups(question_for_model, df, _qc)
                         st.session_state.last_followups = merge_followup_lists(_llm_fu2, _heur_fu2, 6)
-                        fallback_msg = st.session_state.last_interpretation or "Here are the fallback results."
+                        fallback_msg = (
+                            narrative
+                            or _clean_analyst_text
+                            or "Here are the fallback results."
+                        )
                         if digest:
                             fallback_msg = f"{fallback_msg}\n\n{digest}"
                         st.session_state.messages.append(
@@ -2381,7 +2670,7 @@ if question:
                             pass
                     else:
                         msg = (
-                            interpretation
+                            _clean_analyst_text
                             or "I couldn't generate SQL for that. Try rephrasing or use a suggested question."
                         )
                         st.session_state.messages.append({"role": "assistant", "content": msg})
