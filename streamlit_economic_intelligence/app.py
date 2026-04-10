@@ -792,14 +792,15 @@ div[data-testid="stVerticalBlockBorderWrapper"]:hover {
     border-color: var(--dm-border2) !important;
     box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px var(--dm-glow) !important;
 }
-/* Metrics */
+/* Metrics — compact so four-up row shows full text (no ellipsis) */
 div[data-testid="stMetric"] {
     background: var(--dm-surface2) !important;
-    border-radius: 12px !important;
+    border-radius: 10px !important;
     border: 1px solid var(--dm-border) !important;
-    padding: 12px 14px !important;
+    padding: 8px 10px 10px 10px !important;
     box-shadow: var(--dm-shadow-inset) !important;
     transition: transform 0.2s ease, border-color 0.2s ease !important;
+    min-width: 0 !important;
 }
 div[data-testid="stMetric"]:hover {
     transform: translateY(-2px);
@@ -808,13 +809,28 @@ div[data-testid="stMetric"]:hover {
 div[data-testid="stMetric"] label {
     color: var(--dm-muted2) !important;
     font-weight: 600 !important;
-    font-size: 10px !important;
-    letter-spacing: 0.06em !important;
+    font-size: 9px !important;
+    letter-spacing: 0.05em !important;
     text-transform: uppercase !important;
+    line-height: 1.25 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
 }
-div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+div[data-testid="stMetric"] [data-testid="stMetricValue"],
+div[data-testid="stMetric"] [data-testid="stMetricValue"] p,
+div[data-testid="stMetric"] [data-testid="stMarkdownContainer"] p {
     color: var(--dm-sky-bright) !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
+    font-size: 0.75rem !important;
+    line-height: 1.35 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+    text-overflow: unset !important;
+    max-width: 100% !important;
+}
+div[data-testid="column"] > div[data-testid="stVerticalBlock"] > div[data-testid="stMetric"] {
+    max-width: 100% !important;
 }
 /* Buttons */
 button[kind="primary"] {
@@ -1846,15 +1862,34 @@ _render_welcome_hero()
 _render_welcome_back_strip()
 
 with _glass_panel():
-    m1, m2, m3, m4 = st.columns(4)
+    st.caption(
+        "At-a-glance: what this app can query. Hover each **?** for the full table or view name."
+    )
+    m1, m2, m3, m4 = st.columns(4, gap="small")
     with m1:
-        st.metric("Logical tables", "8 domains", help="Granular V_* + macro_wide + company graph")
+        st.metric(
+            "Logical tables",
+            "8 domains",
+            help="Eight semantic tables in the YAML: unemployment, retail, rates, industrial, CPI, GDP, macro_wide, company graph.",
+        )
     with m2:
-        st.metric("Join panel", "ECONOMIC_INDICATORS_WIDE", help="Shared timeline for multi-metric compares")
+        st.metric(
+            "Join panel",
+            "EI wide view",
+            help="SQL: HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE — one timeline for unemployment, CPI, retail, rates, IP, GDP.",
+        )
     with m3:
-        st.metric("Prices & output", "CPI + GDP views", help="V_CPI monthly, V_GDP quarterly")
+        st.metric(
+            "Prices & GDP",
+            "CPI · GDP",
+            help="Headline series: V_CPI (monthly) and V_GDP (quarterly) in the semantic model.",
+        )
     with m4:
-        st.metric("Company graph", "Parent → subsidiary", help="V_COMPANY_RELATIONSHIPS")
+        st.metric(
+            "Company graph",
+            "Parent → sub",
+            help="V_COMPANY_RELATIONSHIPS: parent company to subsidiary rows (Cybersyn-style entity graph).",
+        )
 
 with _glass_panel():
     st.radio(
