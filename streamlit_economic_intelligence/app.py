@@ -378,60 +378,11 @@ WHERE ts."DATE" BETWEEN '2019-01-01' AND '2024-12-31'
 ORDER BY ts."DATE"
 """.strip()
 
-# Headline real GDP (quarterly) — hits marketplace directly; excludes industry % of GDP rows.
 SQL_FALLBACK_GDP_QUARTERLY_5Y = """
-SELECT
-  ts."DATE" AS "DATE",
-  ts.VALUE AS GDP_VALUE,
-  COALESCE(ts.UNIT, att.UNIT, '') AS UNIT,
-  ts.VARIABLE_NAME,
-  att.FREQUENCY
-FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
-JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
-  ON ts.VARIABLE = att.VARIABLE
-WHERE (
-    att.RELEASE_SOURCE ILIKE '%Economic Analysis%'
-    OR att.RELEASE_SOURCE ILIKE '%BEA%'
-    OR TRIM(att.RELEASE_SOURCE) = 'Bureau of Economic Analysis'
-  )
-  AND att.FREQUENCY = 'Quarterly'
-  AND (
-    att.MEASURE ILIKE '%gross domestic product%'
-    OR att.MEASURE ILIKE '%GDP%'
-    OR TRIM(att.MEASURE) = 'Gross Domestic Product'
-  )
-  AND (
-    ts.VARIABLE_NAME ILIKE '%gross domestic%'
-    OR ts.VARIABLE_NAME ILIKE '%GDP%'
-  )
-  AND ts.VARIABLE_NAME NOT ILIKE '%per capita%'
-  AND ts.VARIABLE_NAME NOT ILIKE '%growth%'
-  AND ts.VARIABLE_NAME NOT ILIKE '%change%'
-  AND ts.VARIABLE_NAME NOT ILIKE '%percentage%'
-  AND ts.VARIABLE_NAME NOT ILIKE '%value added by industry%'
-  AND ts.VARIABLE_NAME NOT ILIKE '%contribution to percent change%'
-  AND ts.VARIABLE_NAME NOT ILIKE '%share of gdp%'
-  AND COALESCE(ts.UNIT, att.UNIT, '') NOT ILIKE '%percent%'
-  AND (
-    ts.VARIABLE_NAME ILIKE '%real gross domestic product%'
-    OR ts.VARIABLE_NAME ILIKE '%real gdp%'
-    OR (
-      ts.VARIABLE_NAME ILIKE '%gross domestic product%'
-      AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
-      AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
-    )
-    OR (
-      ts.VARIABLE_NAME ILIKE '%gdp%'
-      AND (
-        COALESCE(ts.UNIT, att.UNIT, '') ILIKE '%billion%'
-        OR COALESCE(ts.UNIT, att.UNIT, '') ILIKE '%dollar%'
-      )
-      AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
-      AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
-    )
-  )
-  AND ts."DATE" >= DATEADD(year, -5, CURRENT_DATE())
-ORDER BY ts."DATE"
+SELECT "DATE", GDP_VALUE, UNIT, VARIABLE_NAME, FREQUENCY
+FROM HACKATHON.DATA.V_GDP
+WHERE "DATE" >= DATEADD(year, -5, CURRENT_DATE())
+ORDER BY "DATE"
 """.strip()
 
 SQL_FALLBACK_MACRO_UNEMPLOYMENT_CPI_2020 = """
@@ -673,52 +624,6 @@ def _recover_cpi_from_marketplace(
                 f"Using fallback CPI source: {tag}."
             )
             return alt_df, prior + note
-    return df, sql
-
-
-def _is_gdp_headline_quarterly_intent(q: str) -> bool:
-    t = _normalize_question(q)
-    if "gdp" not in t and "gross domestic product" not in t:
-        return False
-    return _has_any(
-        t,
-        ("quarter", "last 5", "five year", "5 year", "trend", "show", "real", "year", "annual"),
-    )
-
-
-def _gdp_result_looks_like_industry_share(df: pd.DataFrame) -> bool:
-    if df is None or df.empty or "Error" in df.columns:
-        return False
-    vcol = next((c for c in df.columns if str(c).upper() == "VARIABLE_NAME"), None)
-    ucol = next((c for c in df.columns if str(c).upper() == "UNIT"), None)
-    if vcol is None:
-        return False
-    s = df[vcol].astype(str)
-    if (s.str.contains(r"percentage|value added by industry|share of gdp|contribution to", case=False, na=False)).mean() > 0.2:
-        return True
-    if ucol is not None:
-        u = df[ucol].astype(str)
-        if u.str.contains(r"percent", case=False, na=False).mean() > 0.45:
-            return True
-    return False
-
-
-def _recover_gdp_headline_if_dirty(
-    df: pd.DataFrame,
-    sql: str | None,
-    question: str,
-) -> tuple[pd.DataFrame, str | None]:
-    """Replace Analyst GDP SQL when results are clearly industry-% rows, not headline level GDP."""
-    if not _is_gdp_headline_quarterly_intent(question):
-        return df, sql
-    if df is not None and not df.empty and "Error" not in df.columns and not _gdp_result_looks_like_industry_share(df):
-        return df, sql
-    alt = run_sql(SQL_FALLBACK_GDP_QUARTERLY_5Y)
-    if alt is not None and not alt.empty and "Error" not in alt.columns:
-        note = (
-            "\n\n-- Note: Replaced with verified **headline GDP** (BEA quarterly, billions — not industry % of GDP)."
-        )
-        return alt, (sql or "-- (prior statement)") + note
     return df, sql
 
 
@@ -1066,7 +971,7 @@ Return only JSON array of strings."""
 
 
 LOADING_HINTS: tuple[str, ...] = (
-    "Headline CPI and GDP use dedicated V_CPI and V_GDP views — compare timelines on ECONOMIC_INDICATORS_WIDE.",
+    "Headline CPI uses V_CPI; GDP on ECONOMIC_INDICATORS_WIDE uses the classic BEA marketplace match (GDP fallback SQL reads V_GDP).",
     "The semantic model has eight logical tables: granular series plus macro_wide for multi-indicator joins.",
     "Verified SQL fallbacks kick in if Analyst SQL fails — check the transparency panel.",
     "Quarterly GDP rows only populate GDP on quarter-end dates in the wide panel.",
@@ -3301,7 +3206,6 @@ if question:
                             df = df_fb
                             sql = fb_sql + "\n\n-- Note: Cortex Analyst SQL failed; ran verified fallback query."
                     df, sql = _recover_cpi_from_marketplace(df, sql, question_for_model)
-                    df, sql = _recover_gdp_headline_if_dirty(df, sql, question_for_model)
                     st.session_state.last_sql = sql
                     st.session_state.last_df = df
                     _progress_step("Drafting an executive summary with Cortex COMPLETE…")
@@ -3348,7 +3252,6 @@ if question:
                             + "\n\n-- Note: Cortex Analyst did not return SQL; ran verified fallback query."
                         )
                         df, _fsql = _recover_cpi_from_marketplace(df, _fsql, question_for_model)
-                        df, _fsql = _recover_gdp_headline_if_dirty(df, _fsql, question_for_model)
                         st.session_state.last_sql = _fsql
                         st.session_state.last_df = df
                         _progress_step("Summarizing fallback results…")

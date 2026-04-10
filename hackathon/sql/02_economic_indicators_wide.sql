@@ -1,8 +1,8 @@
 -- Curated macro panel: one row per (GEO_ID, OBSERVATION_DATE) with multiple measures for join/compare story.
 --
--- Prerequisites: run hackathon/economic_indicators_views.sql first (V_UNEMPLOYMENT, V_RETAIL_SALES,
--- V_INTEREST_RATES, V_INDUSTRIAL_PRODUCTION, V_CPI, V_GDP). CPI and GDP columns come from V_CPI / V_GDP
--- so they stay aligned with the granular semantic tables.
+-- Prerequisites: run hackathon/economic_indicators_views.sql first. **CPI** is taken from V_CPI (tiered
+-- headline logic). **GDP** is inlined from the marketplace here (classic BEA GDP match) so the wide
+-- panel matches the original GDP behavior independent of V_GDP row counts.
 --
 -- Used by: semantic `macro_wide` (ECONOMIC_INDICATORS_WIDE).
 
@@ -67,11 +67,31 @@ cpi AS (
 ),
 gdp AS (
     SELECT
-        GEO_ID,
-        "DATE" AS observation_date,
-        AVG(gdp_value) AS gdp
-    FROM HACKATHON.DATA.V_GDP
-    GROUP BY GEO_ID, "DATE"
+        ts.GEO_ID,
+        ts.DATE AS observation_date,
+        AVG(ts.VALUE) AS gdp
+    FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
+    JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
+        ON ts.VARIABLE = att.VARIABLE
+    WHERE (
+            att.RELEASE_SOURCE ILIKE '%Economic Analysis%'
+            OR att.RELEASE_SOURCE ILIKE '%BEA%'
+            OR TRIM(att.RELEASE_SOURCE) = 'Bureau of Economic Analysis'
+          )
+      AND att.FREQUENCY IN ('Quarterly', 'Annual')
+      AND (
+            att.MEASURE ILIKE '%gross domestic product%'
+            OR att.MEASURE ILIKE '%GDP%'
+            OR TRIM(att.MEASURE) = 'Gross Domestic Product'
+          )
+      AND (
+            ts.VARIABLE_NAME ILIKE '%gross domestic%'
+            OR ts.VARIABLE_NAME ILIKE '%GDP%'
+          )
+      AND ts.VARIABLE_NAME NOT ILIKE '%per capita%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%growth%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%change%'
+    GROUP BY ts.GEO_ID, ts.DATE
 ),
 spine AS (
     SELECT GEO_ID, observation_date FROM u

@@ -266,51 +266,7 @@ WHERE (
       )
   AND ts.VARIABLE_NAME NOT ILIKE '%per capita%'
   AND ts.VARIABLE_NAME NOT ILIKE '%growth%'
-  AND ts.VARIABLE_NAME NOT ILIKE '%change%'
-  /* Exclude industry share / percentage-of-GDP rows (not headline real GDP level). */
-  AND ts.VARIABLE_NAME NOT ILIKE '%percentage%'
-  AND ts.VARIABLE_NAME NOT ILIKE '%value added by industry%'
-  AND ts.VARIABLE_NAME NOT ILIKE '%contribution to percent change%'
-  AND ts.VARIABLE_NAME NOT ILIKE '%share of gdp%'
-  AND COALESCE(ts.UNIT, att.UNIT, '') NOT ILIKE '%percent%'
-  /* Headline level (strict) OR permissive quarterly level rows (VALUE >> industry % shares). */
-  AND (
-        (
-            ts.VARIABLE_NAME ILIKE '%real gross domestic product%'
-            OR ts.VARIABLE_NAME ILIKE '%real gdp%'
-            OR (
-                ts.VARIABLE_NAME ILIKE '%gross domestic product%'
-                AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
-                AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
-            )
-            OR (
-                ts.VARIABLE_NAME ILIKE '%gdp%'
-                AND (
-                    COALESCE(ts.UNIT, att.UNIT, '') ILIKE '%billion%'
-                    OR COALESCE(ts.UNIT, att.UNIT, '') ILIKE '%dollar%'
-                )
-                AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
-                AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
-            )
-        )
-        OR (
-            att.FREQUENCY = 'Quarterly'
-            AND ts.VALUE IS NOT NULL
-            AND TRY_TO_DOUBLE(ts.VALUE) > 500
-            AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
-            AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
-            AND ts.VARIABLE_NAME NOT ILIKE '%percentage%'
-            AND ts.VARIABLE_NAME NOT ILIKE '%value added%'
-            AND ts.VARIABLE_NAME NOT ILIKE '%contribution%'
-            AND (
-                ts.VARIABLE_NAME ILIKE '%gross domestic product%'
-                OR (
-                    ts.VARIABLE_NAME ILIKE '%gdp%'
-                    AND LENGTH(COALESCE(ts.VARIABLE_NAME, '')) < 120
-                )
-            )
-        )
-      );
+  AND ts.VARIABLE_NAME NOT ILIKE '%change%';
 
 -- ============================================================
 -- V_COMPANY_RELATIONSHIPS  (Snowflake Data: Finance & Economics — same listing as macro feeds)
