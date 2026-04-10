@@ -1,9 +1,11 @@
 -- Curated macro panel: one row per (GEO_ID, OBSERVATION_DATE) with multiple measures for join/compare story.
--- Run after hackathon/economic_indicators_views.sql.
--- Used by: Cortex semantic table `macro_wide` (ECONOMIC_INDICATORS_WIDE), optional Streamlit header KPIs.
 --
--- Aggregations: headline-style unemployment (excludes age/gender splits), sum of USD retail, avg Fed funds /
--- 10-year Treasury from rate view, avg industrial production index; CPI and GDP from V_CPI / V_GDP (headline series).
+-- Prerequisites: HACKATHON.DATA.V_UNEMPLOYMENT, V_RETAIL_SALES, V_INTEREST_RATES, V_INDUSTRIAL_PRODUCTION
+-- (run hackathon/economic_indicators_views.sql through those views at minimum).
+-- CPI and GDP are inlined here from SNOWFLAKE_PUBLIC_DATA_FREE — you do NOT need V_CPI / V_GDP for this script.
+-- Still create V_CPI and V_GDP in the full views script for Cortex granular logical tables.
+--
+-- Used by: semantic `macro_wide` (ECONOMIC_INDICATORS_WIDE).
 
 CREATE OR REPLACE VIEW HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE AS
 WITH
@@ -58,19 +60,46 @@ ip AS (
 ),
 cpi AS (
     SELECT
-        GEO_ID,
-        "DATE" AS observation_date,
-        AVG(cpi_index) AS cpi
-    FROM HACKATHON.DATA.V_CPI
-    GROUP BY GEO_ID, "DATE"
+        ts.GEO_ID,
+        ts."DATE" AS observation_date,
+        AVG(ts.VALUE) AS cpi
+    FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
+    JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
+        ON ts.VARIABLE = att.VARIABLE
+    WHERE att.RELEASE_SOURCE = 'Bureau of Labor Statistics'
+      AND att.FREQUENCY = 'Monthly'
+      AND att.SEASONALLY_ADJUSTED = 'Seasonally adjusted'
+      AND (
+            att.MEASURE = 'Consumer Price Index'
+            OR TRIM(att.MEASURE) ILIKE 'Consumer Price Index%'
+          )
+      AND ts.VARIABLE_NAME ILIKE '%All Urban Consumers%'
+      AND ts.VARIABLE_NAME ILIKE '%All Items%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%less food and energy%'
+    GROUP BY ts.GEO_ID, ts."DATE"
 ),
 gdp AS (
     SELECT
-        GEO_ID,
-        "DATE" AS observation_date,
-        AVG(gdp_value) AS gdp
-    FROM HACKATHON.DATA.V_GDP
-    GROUP BY GEO_ID, "DATE"
+        ts.GEO_ID,
+        ts."DATE" AS observation_date,
+        AVG(ts.VALUE) AS gdp
+    FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
+    JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
+        ON ts.VARIABLE = att.VARIABLE
+    WHERE (
+            att.RELEASE_SOURCE = 'Bureau of Economic Analysis'
+            OR att.RELEASE_SOURCE ILIKE '%Bureau of Economic Analysis%'
+          )
+      AND att.FREQUENCY = 'Quarterly'
+      AND (
+            att.MEASURE = 'Gross Domestic Product'
+            OR TRIM(att.MEASURE) ILIKE '%Gross Domestic Product%'
+          )
+      AND ts.VARIABLE_NAME ILIKE '%gross domestic product%'
+      AND ts.VARIABLE_NAME ILIKE '%seasonally adjusted annual rate%'
+      AND ts.VARIABLE_NAME ILIKE '%chained%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%per capita%'
+    GROUP BY ts.GEO_ID, ts."DATE"
 ),
 spine AS (
     SELECT GEO_ID, observation_date FROM u
