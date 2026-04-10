@@ -1,11 +1,11 @@
 # Economic Intelligence — Streamlit + Cortex Analyst
 
-Hackathon **AI-02** app: natural language BI over **`ECONOMIC_INDICATORS_WIDE`** (macro) and **`V_COMPANY_RELATIONSHIPS`** (Cybersyn company graph) via Cortex Analyst, plus Cortex COMPLETE, Plotly, and the six innovation features from the spec.
+Hackathon **AI-02** app: natural language BI over **`ECONOMIC_INDICATORS_WIDE`** (macro) and **`V_COMPANY_RELATIONSHIPS`** (company graph from `SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS`) via Cortex Analyst, plus Cortex COMPLETE, Plotly, and the six innovation features from the spec.
 
 ## Prereqs in Snowflake
 
-1. **Marketplace:** get **Snowflake Data: Finance & Economics** (for `SNOWFLAKE_PUBLIC_DATA_FREE`) and **Cybersyn — Company Relationship Graph** (or your team’s listing that exposes `PUBLIC_DATA.COMPANY_RELATIONSHIPS`).
-2. In `hackathon/economic_indicators_views.sql`, set **`CYBERSYN_MARKETPLACE_DB`** to the database name created in your account for that listing, then run the script.
+1. **Marketplace:** install **Snowflake Data: Finance & Economics** so `SNOWFLAKE_PUBLIC_DATA_FREE` is available (macro tables + **`PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS`**).
+2. Run **`hackathon/economic_indicators_views.sql`** (creates `HACKATHON.DATA` views, including `V_COMPANY_RELATIONSHIPS` over `COMPANY_RELATIONSHIPS`).
 3. Run **`hackathon/sql/02_economic_indicators_wide.sql`** (adds `OBSERVATION_YEAR` / `OBSERVATION_MONTH`), then **`hackathon/sql/03_semantic_stage.sql`**.
 4. Upload the semantic model (**re-PUT after any YAML change**):
 

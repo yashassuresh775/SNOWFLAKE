@@ -80,12 +80,11 @@ AND   att.SEASONALLY_ADJUSTED = 'Seasonally adjusted'
 AND   att.FREQUENCY       = 'Monthly';
 
 -- ============================================================
--- V_COMPANY_RELATIONSHIPS  (Cybersyn — Company Relationship Graph, Marketplace)
+-- V_COMPANY_RELATIONSHIPS  (Snowflake Data: Finance & Economics — same listing as macro feeds)
 -- ============================================================
--- Before running: replace CYBERSYN_MARKETPLACE_DB with the database created when you
--- installed the listing (check Databases in Snowsight or the Marketplace "Open" link).
--- Confirm object path: DESCRIBE TABLE CYBERSYN_MARKETPLACE_DB.PUBLIC_DATA.COMPANY_RELATIONSHIPS;
--- Confirm filter values: SELECT DISTINCT RELATIONSHIP_TYPE FROM ... LIMIT 100;
+-- Source: SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS
+-- Validate: DESCRIBE TABLE SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS;
+--           SELECT DISTINCT RELATIONSHIP_TYPE FROM ... LIMIT 100;
 CREATE OR REPLACE VIEW HACKATHON.DATA.V_COMPANY_RELATIONSHIPS AS
 SELECT
     cr.COMPANY_ID,
@@ -96,7 +95,7 @@ SELECT
     cr.RELATIONSHIP_TYPE,
     cr.RELATIONSHIP_START_DATE,
     cr.RELATIONSHIP_END_DATE
-FROM CYBERSYN_MARKETPLACE_DB.PUBLIC_DATA.COMPANY_RELATIONSHIPS AS cr
+FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS AS cr
 WHERE UPPER(TRIM(cr.RELATIONSHIP_TYPE)) = 'PARENT';
 -- Parent-only edges reduce duplicate / bidirectional rows for parent–subsidiary analysis.
 

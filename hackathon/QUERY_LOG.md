@@ -27,4 +27,4 @@ Run each prompt in Cortex Analyst (semantic YAML covers `ECONOMIC_INDICATORS_WID
 | 21 | How many parent relationship rows exist? | Company graph | Single count | |
 | 22 | Which parents have the most subsidiaries? | Company graph | Top-N by count | |
 
-**Notes:** Refine `economic_model.yaml` verified queries and synonyms for any **fail** or **partial** rows. Install the Cybersyn Marketplace listing and replace `CYBERSYN_MARKETPLACE_DB` in `economic_indicators_views.sql` before creating `V_COMPANY_RELATIONSHIPS`.
+**Notes:** Refine `economic_model.yaml` verified queries and synonyms for any **fail** or **partial** rows. Ensure **Snowflake Data: Finance & Economics** is installed so `SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS` exists.

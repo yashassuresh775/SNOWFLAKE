@@ -1,13 +1,13 @@
 # Cortex Analyst semantic model — macro + company graph
 # Macro: HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE (02_economic_indicators_wide.sql)
-# Company: HACKATHON.DATA.V_COMPANY_RELATIONSHIPS (Cybersyn listing → replace CYBERSYN_MARKETPLACE_DB in economic_indicators_views.sql)
+# Company: HACKATHON.DATA.V_COMPANY_RELATIONSHIPS ← SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS
 # Upload: PUT to @HACKATHON.DATA.SEMANTIC_MODELS
 
 name: us_economic_intelligence
 description: |
   Two domains: (1) US macroeconomic time series — labor, inflation, GDP, retail, rates, industrial production — at
   GEO_ID × OBSERVATION_DATE grain on ECONOMIC_INDICATORS_WIDE. (2) Corporate relationships — parent/subsidiary-style
-  edges on V_COMPANY_RELATIONSHIPS (filtered parent-direction rows from Cybersyn Company Relationship Graph).
+  edges on V_COMPANY_RELATIONSHIPS (filtered parent-direction rows from SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS).
   These tables are not joined; route macro questions to economic_indicators and corporate-structure questions to company_relationships.
 
 custom_instructions: |
@@ -188,7 +188,7 @@ tables:
 
   - name: company_relationships
     description: |
-      Parent-direction company relationship edges (Cybersyn) exposed as HACKATHON.DATA.V_COMPANY_RELATIONSHIPS.
+      Parent-direction company relationship edges from Finance & Economics public data, exposed as HACKATHON.DATA.V_COMPANY_RELATIONSHIPS.
       One row per parent-related pair in the filtered extract; use for subsidiaries, holdings, and corporate hierarchy questions.
 
     base_table:
