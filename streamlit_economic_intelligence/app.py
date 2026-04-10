@@ -11,11 +11,16 @@ import uuid
 from typing import Any
 
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import requests
 import streamlit as st
-from plotly.subplots import make_subplots
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    HAS_PLOTLY = True
+except Exception:  # noqa: BLE001
+    HAS_PLOTLY = False
 
 try:
     from snowflake.snowpark.context import get_active_session
@@ -225,6 +230,27 @@ def _auto_chart(df: pd.DataFrame) -> None:
     cols = df.columns.tolist()
     num_cols = list(df.select_dtypes(include="number").columns)
     date_col = next((c for c in cols if "date" in c.lower() or c.lower() in ("month", "period")), None)
+
+    if not HAS_PLOTLY:
+        if len(df) == 1 and len(num_cols) == 1:
+            value_col = num_cols[0]
+            value = float(df[value_col].iloc[0])
+            st.metric(value_col.replace("_", " ").title(), f"{value:,.2f}")
+            return
+        if date_col and num_cols:
+            plot_df = df[[date_col] + num_cols].copy()
+            plot_df[date_col] = pd.to_datetime(plot_df[date_col], errors="coerce")
+            plot_df = plot_df.sort_values(date_col).set_index(date_col)
+            st.line_chart(plot_df, use_container_width=True)
+            return
+        cat_cols = [c for c in cols if c not in num_cols]
+        if cat_cols and len(num_cols) >= 1:
+            plot_df = df[[cat_cols[0]] + num_cols[:1]].copy().set_index(cat_cols[0])
+            st.bar_chart(plot_df, use_container_width=True)
+            return
+        st.dataframe(df, use_container_width=True)
+        st.info("Plotly is not installed in this runtime; using native Streamlit charts.")
+        return
 
     if len(df) == 1 and len(num_cols) == 1:
         value_col = num_cols[0]
