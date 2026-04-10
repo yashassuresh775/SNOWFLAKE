@@ -1,40 +1,167 @@
-# Economic Intelligence — Streamlit + Cortex Analyst
+# Economic Intelligence - Streamlit + Cortex Analyst
 
-Hackathon **AI-02** app: Cortex Analyst semantic model on **`V_UNEMPLOYMENT`**, **`V_RETAIL_SALES`**, **`V_INTEREST_RATES`**, **`V_INDUSTRIAL_PRODUCTION`**, and **`V_COMPANY_RELATIONSHIPS`**. Optional **`ECONOMIC_INDICATORS_WIDE`** (run `02_economic_indicators_wide.sql`) is only for the Streamlit header KPI queries in `app.py`, not for the YAML.
+This app provides a conversational BI interface on top of curated economic and company-relationship views in Snowflake.
 
-**Step-by-step Streamlit in Snowflake (Option A):** see **`DEPLOY_SIS.md`** in this folder.
+It supports:
+- natural-language questions through Cortex Analyst,
+- SQL transparency for every response,
+- narrative summaries via Cortex COMPLETE,
+- resilient fallback routing for known high-value question patterns.
 
-## Prereqs in Snowflake
+For deployment steps in Snowsight, see `DEPLOY_SIS.md`.
 
-1. **Marketplace:** install **Snowflake Data: Finance & Economics** so `SNOWFLAKE_PUBLIC_DATA_FREE` is available (macro tables + **`PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS`**).
-2. Run **`hackathon/economic_indicators_views.sql`** (creates `HACKATHON.DATA` views, including `V_COMPANY_RELATIONSHIPS`).
-3. Run **`hackathon/sql/03_semantic_stage.sql`** (semantic stage).
-4. *(Optional)* Run **`hackathon/sql/02_economic_indicators_wide.sql`** if you want Streamlit **header** KPIs that read `ECONOMIC_INDICATORS_WIDE`.
-5. Upload the semantic model (**re-PUT after any YAML change**):
+## 1) High-level architecture
 
-   ```sql
-   PUT file://semantic_model.yaml @HACKATHON.DATA.SEMANTIC_MODELS AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
-   ```
+User question -> Streamlit UI (`app.py`) -> Cortex Analyst REST (`/api/v2/cortex/analyst/message`) -> SQL -> Snowflake tables/views -> DataFrame/chart/table -> Cortex COMPLETE narrative.
 
-   (Run from Snowflake CLI or SnowSQL with the file path adjusted; or use **Data » Stages** upload.)
+Core data objects:
+- `HACKATHON.DATA.V_UNEMPLOYMENT`
+- `HACKATHON.DATA.V_RETAIL_SALES`
+- `HACKATHON.DATA.V_INTEREST_RATES`
+- `HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION`
+- `HACKATHON.DATA.V_COMPANY_RELATIONSHIPS`
+- Semantic model on stage: `@HACKATHON.DATA.SEMANTIC_MODELS/semantic_model.yaml`
 
-6. **Streamlit in Snowflake:** create a new Streamlit app, point root file to `app.py` (or use `streamlit_app.py` as main with `app.py` alongside — see `DEPLOY_SIS.md`), include `requirements.txt` packages. Set secrets/env if needed:
+## 2) Component responsibilities
 
-   - `SEMANTIC_MODEL_FILE` — default `@HACKATHON.DATA.SEMANTIC_MODELS/semantic_model.yaml`
-   - `CORTEX_COMPLETE_MODEL` — default `mistral-large2` (use an LLM enabled on your account, e.g. `llama3-8b`, `snowflake-arctic`)
+### `streamlit_economic_intelligence/app.py`
 
-7. **External access:** if the REST call to `/api/v2/cortex/analyst/message` is blocked, create a **network rule / Egress** as required by your org (training accounts often allow Snowflake REST to same account).
+Main application logic:
+- builds UI (chat, suggested prompts, chart area, SQL panel),
+- calls Cortex Analyst over REST,
+- executes generated SQL with Snowpark,
+- generates executive-style narrative with `SNOWFLAKE.CORTEX.COMPLETE`,
+- applies intent-based SQL fallbacks when Analyst output is missing or broken.
 
-## Local UI skeleton (optional)
+Important internal units:
+- `_connection_auth()`: obtains host/token from active Snowpark connection.
+- `call_cortex_analyst()`: REST call for NL-to-SQL.
+- `run_sql()`: SQL executor to pandas DataFrame.
+- `generate_narrative()`: narrative generation prompt + COMPLETE call.
+- `_fallback_sql_for_question()`: normalized intent router for safety-net queries.
 
-```bash
-export STREAMLIT_MOCK_CORTEX=true
-pip install -r requirements.txt
-streamlit run app.py
+### `hackathon/semantic_models/semantic_model.yaml`
+
+Cortex semantic contract:
+- table-level metadata for the 5 logical domains,
+- dimensions/time/measures and synonyms,
+- custom routing instructions,
+- verified query examples for key ask patterns.
+
+This file strongly influences how Analyst maps text to SQL.
+
+### `hackathon/economic_indicators_views.sql`
+
+Creates source views used by both Analyst and fallback SQL.
+
+### `hackathon/sql/03_semantic_stage.sql`
+
+Creates stage for semantic model YAML.
+
+### `streamlit_economic_intelligence/streamlit_app.py`
+
+Thin loader used when Snowsight defaults main entry to `streamlit_app.py`; it executes `app.py`.
+
+## 3) End-to-end process flow
+
+1. User enters a question in the chat UI.
+2. App sends question + semantic model path to Cortex Analyst REST.
+3. If Analyst returns SQL:
+   - app runs SQL,
+   - displays chart/table,
+   - shows generated SQL in transparency panel,
+   - generates narrative from top result rows.
+4. If Analyst returns no SQL or bad SQL:
+   - app invokes intent router (`_fallback_sql_for_question`) and runs verified fallback SQL when matched.
+5. App renders final answer as:
+   - narrative,
+   - chart/data table,
+   - SQL transparency block.
+
+## 4) How iterative improvements are done
+
+We use a two-layer improvement loop:
+
+### Layer A: semantic model first (preferred)
+- Add/adjust synonyms in `semantic_model.yaml`.
+- Clarify `custom_instructions` for ambiguous language.
+- Add representative `verified_queries` for repeated failures.
+- Re-upload YAML to stage and retest.
+
+### Layer B: safety-net fallback routing (minimal but reliable)
+- Normalize user question text.
+- Map high-value intents to stable verified SQL templates.
+- Execute fallback only when Analyst output fails (missing SQL / SQL error).
+
+This keeps the app usable in demos while continuously improving native Analyst quality.
+
+## 5) Common traps we found and fixes in place
+
+### Trap 1: Cortex generates invalid CTE aliases for company queries
+Symptom:
+- SQL references `company_name` / `related_company_name` after aliasing them differently.
+Fix:
+- strengthened semantic instructions for company SQL shape,
+- fallback routes for subsidiary leaderboard and "subsidiaries does X own" patterns.
+
+### Trap 2: "Requires more information than available" on complex comparative asks
+Symptom:
+- Analyst refuses multi-step prompts (before/after comparisons, growth windows).
+Fix:
+- added explicit semantic instructions and verified queries,
+- intent router fallback for specific comparative patterns.
+
+### Trap 3: Runtime mismatch between repo and Snowsight files
+Symptom:
+- errors from stale `streamlit_app.py` template (e.g., old imports).
+Fix:
+- keep `streamlit_app.py` as a loader to execute current `app.py`,
+- redeploy both files together when needed.
+
+### Trap 4: Plotly package availability differences in SiS
+Symptom:
+- `ModuleNotFoundError: plotly` in some runtime setups.
+Fix:
+- app currently uses native Streamlit charts in the clean baseline.
+
+### Trap 5: Deprecated Snowflake connector warning
+Symptom:
+- warning around old env var names.
+Fix:
+- operational note only; does not block app behavior.
+
+## 6) Current fallback intent coverage
+
+The router currently covers high-frequency failure classes such as:
+- most subsidiaries,
+- subsidiaries for a specific company,
+- companies with more than N subsidiaries (currently `>5` pattern),
+- top/biggest retail categories in 2023,
+- auto retail trend 2019-2023,
+- treasury/interest windows (2020+, 2022-2023),
+- industrial top sectors (2023),
+- aerospace production trend,
+- retail growth before vs after 2022 hike cycle.
+
+## 7) Deployment checklist
+
+1. Run setup SQL:
+   - `hackathon/economic_indicators_views.sql`
+   - `hackathon/sql/03_semantic_stage.sql`
+2. Upload semantic model:
+
+```sql
+PUT file://semantic_model.yaml @HACKATHON.DATA.SEMANTIC_MODELS
+  AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
 ```
 
-Mock mode skips Analyst; full execution requires a Snowpark session (SiS).
+3. In Streamlit app, deploy `app.py` (or `streamlit_app.py` + `app.py`).
+4. Ensure `requirements.txt` packages are installed in app settings.
+5. Retest core prompts after every semantic-model change.
 
-## Query log
+## 8) Notes for ongoing refinement
 
-Fill in `hackathon/QUERY_LOG.md` with pass/fail for the 15+ test questions.
+- Prefer semantic-model improvements over adding new hardcoded routes.
+- Add fallback routes only for mission-critical prompts with repeated failures.
+- Track failures and convert repeated ones into semantic verified queries first.
+
