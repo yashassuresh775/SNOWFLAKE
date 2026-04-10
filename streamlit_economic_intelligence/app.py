@@ -396,6 +396,40 @@ Return only JSON array of strings."""
     return []
 
 
+LOADING_HINTS: tuple[str, ...] = (
+    "Headline CPI and GDP use dedicated V_CPI and V_GDP views — compare timelines on ECONOMIC_INDICATORS_WIDE.",
+    "The semantic model has eight logical tables: granular series plus macro_wide for multi-indicator joins.",
+    "Verified SQL fallbacks kick in if Analyst SQL fails — check the transparency panel.",
+    "Quarterly GDP rows only populate GDP on quarter-end dates in the wide panel.",
+    "Try the Multi-metric tab for unemployment vs CPI or industrial production on one chart.",
+)
+
+
+def _loading_banner_html(step: str, hint: str) -> str:
+    safe_step = html.escape(step)
+    safe_hint = html.escape(hint)
+    return f"""
+<div class="analyst-loading-wrap">
+  <div class="analyst-loading-orbs" aria-hidden="true">
+    <span class="analyst-orb analyst-orb-1"></span>
+    <span class="analyst-orb analyst-orb-2"></span>
+    <span class="analyst-orb analyst-orb-3"></span>
+  </div>
+  <div class="analyst-loading-card">
+    <div class="analyst-loading-kicker">Working on your question</div>
+    <div class="analyst-loading-title">{safe_step}</div>
+    <div class="analyst-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="analyst-hint">{safe_hint}</div>
+  </div>
+</div>
+"""
+
+
+def _loading_hint_for_turn() -> str:
+    n = len(st.session_state.get("messages", []))
+    return LOADING_HINTS[n % len(LOADING_HINTS)]
+
+
 # ── page ──────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="US Economic Intelligence",
@@ -451,6 +485,110 @@ st.markdown(
     text-transform: uppercase; letter-spacing: 0.1em;
     color: #00838f;
     margin-bottom: 8px;
+}
+@keyframes analyst-float-y {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+@keyframes analyst-orbit {
+    0% { transform: rotate(0deg) translateX(28px) rotate(0deg); }
+    100% { transform: rotate(360deg) translateX(28px) rotate(-360deg); }
+}
+@keyframes analyst-pulse-ring {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(21, 101, 192, 0.35); }
+    50% { box-shadow: 0 0 0 12px rgba(21, 101, 192, 0); }
+}
+@keyframes analyst-dot-bounce {
+    0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
+    40% { transform: translateY(-6px); opacity: 1; }
+}
+@keyframes analyst-shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+.analyst-loading-wrap {
+    position: relative;
+    margin: 8px 0 20px 0;
+    min-height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.analyst-loading-orbs {
+    position: absolute;
+    width: 120px;
+    height: 120px;
+    left: 50%;
+    top: 50%;
+    margin-left: -60px;
+    margin-top: -60px;
+    pointer-events: none;
+}
+.analyst-orb {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    left: 50%;
+    top: 50%;
+    margin: -7px 0 0 -7px;
+    animation: analyst-orbit 4.5s linear infinite;
+}
+.analyst-orb-1 { background: linear-gradient(135deg, #1565c0, #42a5f5); animation-duration: 3.8s; }
+.analyst-orb-2 { background: linear-gradient(135deg, #00838f, #4dd0e1); animation-duration: 5.2s; animation-direction: reverse; }
+.analyst-orb-3 { background: linear-gradient(135deg, #5c6bc0, #9fa8da); animation-duration: 4.2s; }
+.analyst-loading-card {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    padding: 20px 28px 22px 28px;
+    border-radius: 16px;
+    background: linear-gradient(145deg, #ffffff 0%, #f0f7ff 50%, #e8f4fc 100%);
+    border: 1px solid rgba(21, 101, 192, 0.18);
+    box-shadow: 0 8px 32px rgba(13, 71, 161, 0.12);
+    animation: analyst-float-y 3.2s ease-in-out infinite, analyst-pulse-ring 2.4s ease-out infinite;
+    max-width: 520px;
+    margin: 0 auto;
+}
+.analyst-loading-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #00838f;
+    margin-bottom: 8px;
+}
+.analyst-loading-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: #0d47a1;
+    margin-bottom: 12px;
+    line-height: 1.35;
+}
+.analyst-dots {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 14px;
+}
+.analyst-dots span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: linear-gradient(180deg, #1565c0, #00838f);
+    animation: analyst-dot-bounce 1.05s ease-in-out infinite;
+}
+.analyst-dots span:nth-child(2) { animation-delay: 0.15s; }
+.analyst-dots span:nth-child(3) { animation-delay: 0.3s; }
+.analyst-hint {
+    font-size: 13px;
+    color: #5c6b7a;
+    line-height: 1.45;
+    padding-top: 4px;
+    border-top: 1px solid rgba(0, 131, 143, 0.12);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.9) 20%, rgba(255,255,255,0.9) 80%, transparent);
+    background-size: 200% 100%;
+    animation: analyst-shimmer 4s ease-in-out infinite;
 }
 </style>
 """,
@@ -671,6 +809,8 @@ with m4:
 
 st.divider()
 
+query_progress = st.empty()
+
 left, right = st.columns([1, 1], gap="large")
 
 with left:
@@ -787,7 +927,14 @@ if question:
     question_for_model = _autocorrect_question(question)
     st.session_state.messages.append({"role": "user", "content": question})
 
-    with st.spinner("Thinking..."):
+    hint = _loading_hint_for_turn()
+
+    def _progress_step(label: str) -> None:
+        query_progress.markdown(_loading_banner_html(label, hint), unsafe_allow_html=True)
+
+    _progress_step("Sending your question to Cortex Analyst…")
+
+    with st.spinner("Cortex Analyst is responding…"):
         try:
             response = call_cortex_analyst(
                 question_for_model,
@@ -803,6 +950,7 @@ if question:
                 st.session_state.last_sql = None
                 st.session_state.last_interpretation = None
                 st.session_state.last_followups = []
+                query_progress.empty()
             else:
                 sql = None
                 interpretation = None
@@ -813,14 +961,17 @@ if question:
                         interpretation = block.get("text", "")
 
                 if sql:
+                    _progress_step("Running generated SQL in your Snowflake warehouse…")
                     df = run_sql(sql)
                     if "Error" in df.columns:
                         fallback_sql = _fallback_sql_for_question(question)
                         if fallback_sql:
+                            _progress_step("Analyst SQL had an error — running a verified fallback query…")
                             df = run_sql(fallback_sql)
                             sql = fallback_sql + "\n\n-- Note: Cortex Analyst SQL failed; ran verified fallback query."
                     st.session_state.last_sql = sql
                     st.session_state.last_df = df
+                    _progress_step("Drafting an executive summary with Cortex COMPLETE…")
                     narrative = generate_narrative(question_for_model, df)
                     digest = _result_digest(df)
                     if narrative:
@@ -829,6 +980,7 @@ if question:
                         st.session_state.last_interpretation = interpretation
                     else:
                         st.session_state.last_interpretation = None
+                    _progress_step("Generating smart follow-up suggestions…")
                     st.session_state.last_followups = generate_followups(question_for_model, df)
                     reply = (
                         narrative
@@ -840,18 +992,26 @@ if question:
                     st.session_state.messages.append(
                         {"role": "assistant", "content": reply}
                     )
+                    query_progress.empty()
+                    try:
+                        st.toast("Results ready — chart and narrative updated.", icon="✅")
+                    except Exception:  # noqa: BLE001
+                        pass
                 else:
                     fallback_sql = _fallback_sql_for_question(question)
                     if fallback_sql:
+                        _progress_step("No SQL from Analyst — using a verified fallback query…")
                         df = run_sql(fallback_sql)
                         st.session_state.last_sql = (
                             fallback_sql
                             + "\n\n-- Note: Cortex Analyst did not return SQL; ran verified fallback query."
                         )
                         st.session_state.last_df = df
+                        _progress_step("Summarizing fallback results…")
                         narrative = generate_narrative(question, df)
                         digest = _result_digest(df)
                         st.session_state.last_interpretation = narrative or interpretation
+                        _progress_step("Generating smart follow-up suggestions…")
                         st.session_state.last_followups = generate_followups(question_for_model, df)
                         fallback_msg = st.session_state.last_interpretation or "Here are the fallback results."
                         if digest:
@@ -859,6 +1019,11 @@ if question:
                         st.session_state.messages.append(
                             {"role": "assistant", "content": fallback_msg}
                         )
+                        query_progress.empty()
+                        try:
+                            st.toast("Used verified fallback SQL — check transparency panel.", icon="ℹ️")
+                        except Exception:  # noqa: BLE001
+                            pass
                     else:
                         msg = (
                             interpretation
@@ -869,10 +1034,12 @@ if question:
                         st.session_state.last_sql = None
                         st.session_state.last_interpretation = None
                         st.session_state.last_followups = []
+                        query_progress.empty()
         except Exception as e:  # noqa: BLE001
             st.session_state.messages.append(
                 {"role": "assistant", "content": f"Error: {e}"}
             )
             st.session_state.last_followups = []
+            query_progress.empty()
 
     st.rerun()
