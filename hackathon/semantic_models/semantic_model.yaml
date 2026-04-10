@@ -15,6 +15,10 @@ custom_instructions: |
   Physical value columns are unemployment_rate, retail_sales, interest_rate, production_index, not VALUE.
   Round outputs to 2 decimal places unless the user asks otherwise.
   For company_relationships, names may appear in ALL CAPS; parent/subsidiary questions use company_relationships.
+  Industrial production: phrases like industrial production, manufacturing output, factory output, sector production, or named sectors
+  (aerospace, aircraft, auto, motor vehicles, chemicals, computers, etc.) map to industrial_production. The Fed series title is in
+  VARIABLE_NAME; filter with VARIABLE_NAME ILIKE '%keyword%' using the user words and close synonyms (e.g. aerospace OR aircraft OR aviation).
+  Trend questions: SELECT DATE, AVG(PRODUCTION_INDEX) ... GROUP BY DATE ORDER BY DATE. Do not refuse for lack of tables when industrial_production applies.
 
 tables:
   - name: unemployment
@@ -212,8 +216,9 @@ tables:
 
   - name: industrial_production
     description: >
-      Monthly US industrial production index by manufacturing series (VARIABLE_NAME).
-      Federal Reserve, seasonally adjusted. Higher index = more output vs base year.
+      Monthly US Federal Reserve industrial production index. Each row is one series; the series name and sector wording are in VARIABLE_NAME
+      (e.g. aircraft, aerospace, motor vehicles, chemicals). Use INDUSTRY for broader grouping when present. Measure is production_index.
+      For user questions about a sector, filter VARIABLE_NAME with ILIKE on keywords from the question. Seasonally adjusted, monthly.
     base_table:
       database: HACKATHON
       schema: DATA
@@ -225,7 +230,9 @@ tables:
         - VARIABLE_NAME
     dimensions:
       - name: industry_name
-        description: Specific industrial sector series name.
+        description: >
+          Fed industrial production series name; contains sector keywords (e.g. Aircraft, Aerospace, Motor vehicles).
+          Filter with ILIKE for sub-sector questions.
         expr: VARIABLE_NAME
         data_type: text
         synonyms:
@@ -234,6 +241,10 @@ tables:
           - manufacturing sector
           - production category
           - industry type
+          - aerospace
+          - aircraft
+          - aviation
+          - series name
       - name: industry_group
         description: Broader industry grouping from attributes.
         expr: INDUSTRY
@@ -268,6 +279,9 @@ tables:
           - production level
           - industrial output
           - index
+          - industrial production index
+          - IP index
+          - Fed production index
 
   - name: company_relationships
     description: >
@@ -428,7 +442,17 @@ verified_queries:
     sql: |
       SELECT "DATE", AVG(PRODUCTION_INDEX) AS production_index
       FROM HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION
-      WHERE VARIABLE_NAME ILIKE '%Aerospace%'
+      WHERE (VARIABLE_NAME ILIKE '%Aerospace%' OR VARIABLE_NAME ILIKE '%Aircraft%')
+        AND "DATE" BETWEEN '2019-01-01' AND '2023-12-31'
+      GROUP BY "DATE"
+      ORDER BY "DATE"
+
+  - name: industrial_aerospace_industrial_production_trend
+    question: "How did aerospace industrial production trend from 2019 to 2023?"
+    sql: |
+      SELECT "DATE", AVG(PRODUCTION_INDEX) AS production_index
+      FROM HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION
+      WHERE (VARIABLE_NAME ILIKE '%Aerospace%' OR VARIABLE_NAME ILIKE '%Aircraft%')
         AND "DATE" BETWEEN '2019-01-01' AND '2023-12-31'
       GROUP BY "DATE"
       ORDER BY "DATE"
