@@ -1,4 +1,12 @@
 -- Safe to re-run: skip if database/schema already exist in your account.
+--
+-- Financial indicators source: most accounts use
+--   SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_*
+-- Some listings expose the same tables under
+--   SNOWFLAKE_PUBLIC_DATA_FREE.CYBERSYN.financial_economic_indicators_*
+-- If V_CPI / V_GDP return 0 rows, run hackathon/sql/discover_cpi_gdp_filters.sql in your account,
+-- then find/replace PUBLIC_DATA_FREE with CYBERSYN on the FROM/JOIN lines below (timeseries + attributes only).
+--
 CREATE DATABASE IF NOT EXISTS HACKATHON;
 
 CREATE SCHEMA IF NOT EXISTS HACKATHON.DATA;
@@ -81,9 +89,8 @@ AND   att.SEASONALLY_ADJUSTED = 'Seasonally adjusted'
 AND   att.FREQUENCY       = 'Monthly';
 
 -- ============================================================
--- V_CPI  (BLS — headline CPI-U, all items, seasonally adjusted, monthly)
--- Validate if empty: SELECT DISTINCT MEASURE, VARIABLE_NAME FROM ...attributes a JOIN ...timeseries t ON a.VARIABLE=t.VARIABLE
---   WHERE a.RELEASE_SOURCE ILIKE '%Labor Statistics%' AND a.MEASURE ILIKE '%consumer%price%' LIMIT 50;
+-- V_CPI  (BLS — headline CPI / all-items style, monthly, seasonally adjusted when labeled)
+-- Filters are intentionally broad so different marketplace string variants still return rows.
 -- ============================================================
 CREATE OR REPLACE VIEW HACKATHON.DATA.V_CPI AS
 SELECT
@@ -96,20 +103,34 @@ SELECT
 FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
 JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
     ON ts.VARIABLE = att.VARIABLE
-WHERE att.RELEASE_SOURCE = 'Bureau of Labor Statistics'
+WHERE (
+        att.RELEASE_SOURCE ILIKE '%Labor Statistics%'
+        OR att.RELEASE_SOURCE ILIKE '%BLS%'
+        OR TRIM(att.RELEASE_SOURCE) = 'Bureau of Labor Statistics'
+      )
   AND att.FREQUENCY = 'Monthly'
-  AND att.SEASONALLY_ADJUSTED = 'Seasonally adjusted'
   AND (
-        att.MEASURE = 'Consumer Price Index'
+        TRIM(att.SEASONALLY_ADJUSTED) = 'Seasonally adjusted'
+        OR att.SEASONALLY_ADJUSTED ILIKE 'Seasonally adjusted%'
+      )
+  AND (
+        att.MEASURE ILIKE '%consumer%price%'
+        OR att.MEASURE ILIKE '%CPI%'
+        OR TRIM(att.MEASURE) = 'Consumer Price Index'
         OR TRIM(att.MEASURE) ILIKE 'Consumer Price Index%'
       )
-  AND ts.VARIABLE_NAME ILIKE '%All Urban Consumers%'
-  AND ts.VARIABLE_NAME ILIKE '%All Items%'
-  AND ts.VARIABLE_NAME NOT ILIKE '%less food and energy%';
+  AND (
+        ts.VARIABLE_NAME ILIKE '%all items%'
+        OR ts.VARIABLE_NAME ILIKE '%all urban%'
+        OR ts.VARIABLE_NAME ILIKE '%cpi-u%'
+        OR ts.VARIABLE_NAME ILIKE '%consumer price index%'
+      )
+  AND ts.VARIABLE_NAME NOT ILIKE '%less food and energy%'
+  AND ts.VARIABLE_NAME NOT ILIKE '%except food%'
+  AND ts.VARIABLE_NAME NOT ILIKE '%core%';
 
 -- ============================================================
--- V_GDP  (BEA — real GDP, quarterly, seasonally adjusted annual rate)
--- Validate if empty: relax VARIABLE_NAME (remove chained filter) or check MEASURE / RELEASE_SOURCE strings in your listing.
+-- V_GDP  (BEA — GDP level series, quarterly preferred; broad MEASURE / VARIABLE_NAME match)
 -- ============================================================
 CREATE OR REPLACE VIEW HACKATHON.DATA.V_GDP AS
 SELECT
@@ -122,17 +143,24 @@ SELECT
 FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
 JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
     ON ts.VARIABLE = att.VARIABLE
-WHERE (att.RELEASE_SOURCE = 'Bureau of Economic Analysis'
-    OR att.RELEASE_SOURCE ILIKE '%Bureau of Economic Analysis%')
-  AND att.FREQUENCY = 'Quarterly'
-  AND (
-        att.MEASURE = 'Gross Domestic Product'
-        OR TRIM(att.MEASURE) ILIKE '%Gross Domestic Product%'
+WHERE (
+        att.RELEASE_SOURCE ILIKE '%Economic Analysis%'
+        OR att.RELEASE_SOURCE ILIKE '%BEA%'
+        OR TRIM(att.RELEASE_SOURCE) = 'Bureau of Economic Analysis'
       )
-  AND ts.VARIABLE_NAME ILIKE '%gross domestic product%'
-  AND ts.VARIABLE_NAME ILIKE '%seasonally adjusted annual rate%'
-  AND ts.VARIABLE_NAME ILIKE '%chained%'
-  AND ts.VARIABLE_NAME NOT ILIKE '%per capita%';
+  AND att.FREQUENCY IN ('Quarterly', 'Annual')
+  AND (
+        att.MEASURE ILIKE '%gross domestic product%'
+        OR att.MEASURE ILIKE '%GDP%'
+        OR TRIM(att.MEASURE) = 'Gross Domestic Product'
+      )
+  AND (
+        ts.VARIABLE_NAME ILIKE '%gross domestic%'
+        OR ts.VARIABLE_NAME ILIKE '%GDP%'
+      )
+  AND ts.VARIABLE_NAME NOT ILIKE '%per capita%'
+  AND ts.VARIABLE_NAME NOT ILIKE '%growth%'
+  AND ts.VARIABLE_NAME NOT ILIKE '%change%';
 
 -- ============================================================
 -- V_COMPANY_RELATIONSHIPS  (Snowflake Data: Finance & Economics — same listing as macro feeds)

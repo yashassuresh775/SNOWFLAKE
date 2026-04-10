@@ -66,16 +66,31 @@ cpi AS (
     FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
     JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
         ON ts.VARIABLE = att.VARIABLE
-    WHERE att.RELEASE_SOURCE = 'Bureau of Labor Statistics'
+    WHERE (
+            att.RELEASE_SOURCE ILIKE '%Labor Statistics%'
+            OR att.RELEASE_SOURCE ILIKE '%BLS%'
+            OR TRIM(att.RELEASE_SOURCE) = 'Bureau of Labor Statistics'
+          )
       AND att.FREQUENCY = 'Monthly'
-      AND att.SEASONALLY_ADJUSTED = 'Seasonally adjusted'
       AND (
-            att.MEASURE = 'Consumer Price Index'
+            TRIM(att.SEASONALLY_ADJUSTED) = 'Seasonally adjusted'
+            OR att.SEASONALLY_ADJUSTED ILIKE 'Seasonally adjusted%'
+          )
+      AND (
+            att.MEASURE ILIKE '%consumer%price%'
+            OR att.MEASURE ILIKE '%CPI%'
+            OR TRIM(att.MEASURE) = 'Consumer Price Index'
             OR TRIM(att.MEASURE) ILIKE 'Consumer Price Index%'
           )
-      AND ts.VARIABLE_NAME ILIKE '%All Urban Consumers%'
-      AND ts.VARIABLE_NAME ILIKE '%All Items%'
+      AND (
+            ts.VARIABLE_NAME ILIKE '%all items%'
+            OR ts.VARIABLE_NAME ILIKE '%all urban%'
+            OR ts.VARIABLE_NAME ILIKE '%cpi-u%'
+            OR ts.VARIABLE_NAME ILIKE '%consumer price index%'
+          )
       AND ts.VARIABLE_NAME NOT ILIKE '%less food and energy%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%except food%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%core%'
     GROUP BY ts.GEO_ID, ts."DATE"
 ),
 gdp AS (
@@ -87,18 +102,23 @@ gdp AS (
     JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
         ON ts.VARIABLE = att.VARIABLE
     WHERE (
-            att.RELEASE_SOURCE = 'Bureau of Economic Analysis'
-            OR att.RELEASE_SOURCE ILIKE '%Bureau of Economic Analysis%'
+            att.RELEASE_SOURCE ILIKE '%Economic Analysis%'
+            OR att.RELEASE_SOURCE ILIKE '%BEA%'
+            OR TRIM(att.RELEASE_SOURCE) = 'Bureau of Economic Analysis'
           )
-      AND att.FREQUENCY = 'Quarterly'
+      AND att.FREQUENCY IN ('Quarterly', 'Annual')
       AND (
-            att.MEASURE = 'Gross Domestic Product'
-            OR TRIM(att.MEASURE) ILIKE '%Gross Domestic Product%'
+            att.MEASURE ILIKE '%gross domestic product%'
+            OR att.MEASURE ILIKE '%GDP%'
+            OR TRIM(att.MEASURE) = 'Gross Domestic Product'
           )
-      AND ts.VARIABLE_NAME ILIKE '%gross domestic product%'
-      AND ts.VARIABLE_NAME ILIKE '%seasonally adjusted annual rate%'
-      AND ts.VARIABLE_NAME ILIKE '%chained%'
+      AND (
+            ts.VARIABLE_NAME ILIKE '%gross domestic%'
+            OR ts.VARIABLE_NAME ILIKE '%GDP%'
+          )
       AND ts.VARIABLE_NAME NOT ILIKE '%per capita%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%growth%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%change%'
     GROUP BY ts.GEO_ID, ts."DATE"
 ),
 spine AS (
