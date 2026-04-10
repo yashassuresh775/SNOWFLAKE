@@ -18,7 +18,7 @@ Hackathon **AI-02** app: Cortex Analyst semantic model on **`V_UNEMPLOYMENT`**, 
 
    (Run from Snowflake CLI or SnowSQL with the file path adjusted; or use **Data » Stages** upload.)
 
-6. **Streamlit in Snowflake:** create a new Streamlit app, point root file to `app.py`, include `requirements.txt` packages. Set secrets/env if needed:
+6. **Streamlit in Snowflake:** create a new Streamlit app, point root file to `app.py` (or use `streamlit_app.py` as main with `app.py` alongside — see `DEPLOY_SIS.md`), include `requirements.txt` packages. Set secrets/env if needed:
 
    - `SEMANTIC_MODEL_FILE` — default `@HACKATHON.DATA.SEMANTIC_MODELS/semantic_model.yaml`
    - `CORTEX_COMPLETE_MODEL` — default `mistral-large2` (use an LLM enabled on your account, e.g. `llama3-8b`, `snowflake-arctic`)

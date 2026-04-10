@@ -43,10 +43,10 @@ SELECT COUNT(*) FROM HACKATHON.DATA.V_UNEMPLOYMENT;
 ## 3. Add your code
 
 1. Open the app → **Files** (or editor).
-2. Set the **main entry** file to **`app.py`** (if asked).
-3. **Replace** the starter template with the full contents of this repo’s  
-   `streamlit_economic_intelligence/app.py`  
-   (copy from Cursor, paste into Snowsight).
+2. **Main entry — pick one:**
+   - **`app.py`:** paste the full contents of `streamlit_economic_intelligence/app.py` and set it as the main file, **or**
+   - **`streamlit_app.py`:** upload **`app.py`** and **`streamlit_app.py`** from `streamlit_economic_intelligence/` in the **same folder**, set main to **`streamlit_app.py`** (it loads `app.py`). Do **not** keep the default SiS template that imports Plotly.
+3. **Save** before **Run**.
 
 ## 4. Python packages (required — or imports fail)
 
@@ -89,4 +89,4 @@ Click **Run** / **Open** on the app. The app runs **inside** Snowflake; `get_act
 
 ## 8. Git (optional)
 
-If your org enabled **Git for Streamlit**, use **Connect Git Repository** on the app, point at this repo, and set the root file to `streamlit_economic_intelligence/app.py`.
+If your org enabled **Git for Streamlit**, use **Connect Git Repository** on the app, point at this repo, and set the root file to `streamlit_economic_intelligence/app.py` (or `streamlit_economic_intelligence/streamlit_app.py` if that is your workspace default — keep both files in the repo path).
