@@ -165,15 +165,25 @@ ORDER BY subsidiary_count DESC
 """.strip()
 
 
-def _wants_subsidiary_leaderboard(q: str) -> bool:
-    t = q.lower()
+def _normalize_question(q: str) -> str:
+    t = q.lower().strip()
+    t = re.sub(r"[^a-z0-9\s]", " ", t)
+    t = re.sub(r"\s+", " ", t)
+    return t
+
+
+def _has_any(text: str, words: tuple[str, ...]) -> bool:
+    return any(w in text for w in words)
+
+
+def _wants_subsidiary_leaderboard(t: str) -> bool:
     if "subsidiar" not in t:
         return False
-    return any(k in t for k in ("most", "top", "largest", "many", "number", "count", "biggest"))
+    return _has_any(t, ("most", "top", "largest", "many", "number", "count", "biggest"))
 
 
 def _company_name_from_subsidiary_question(q: str) -> str | None:
-    t = q.lower().strip()
+    t = _normalize_question(q)
     m = re.search(r"subsidiar(?:y|ies)\s+does\s+(.+?)\s+own", t)
     if not m:
         m = re.search(r"what\s+subsidiar(?:y|ies)\s+(.+?)\s+own", t)
@@ -185,40 +195,36 @@ def _company_name_from_subsidiary_question(q: str) -> str | None:
     return raw.upper().replace("'", "''")
 
 
+def _build_subsidiary_by_company_sql(company_upper: str) -> str:
+    return (
+        "SELECT RELATED_COMPANY_NAME AS subsidiary\n"
+        "FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS\n"
+        f"WHERE COMPANY_NAME ILIKE '%{company_upper}%'\n"
+        "ORDER BY RELATED_COMPANY_NAME"
+    )
+
+
 def _fallback_sql_for_question(q: str) -> str | None:
-    t = q.lower()
+    t = _normalize_question(q)
+
+    # Company graph intents
     if _wants_subsidiary_leaderboard(t):
         return SQL_FALLBACK_MOST_SUBSIDIARIES
     if "more than 5" in t and "subsidiar" in t:
         return SQL_FALLBACK_COMPANIES_GT5_SUBSIDIARIES
     dyn_company = _company_name_from_subsidiary_question(q)
     if dyn_company:
-        return (
-            "SELECT RELATED_COMPANY_NAME AS subsidiary\n"
-            "FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS\n"
-            f"WHERE COMPANY_NAME ILIKE '%{dyn_company}%'\n"
-            "ORDER BY RELATED_COMPANY_NAME"
-        )
-    if "subsidiar" in t and "kroger" in t:
-        return SQL_FALLBACK_KROGER_SUBSIDIARIES
-    if "subsidiar" in t and "marriott" in t:
-        return SQL_FALLBACK_MARRIOTT_SUBSIDIARIES
-    if "unemployment" in t and "men" in t and "women" in t and "2022" in t:
+        return _build_subsidiary_by_company_sql(dyn_company)
+
+    # Unemployment intents
+    if "unemployment" in t and "2022" in t and _has_any(t, ("men", "male")) and _has_any(t, ("women", "female")):
         return SQL_FALLBACK_UNEMPLOYMENT_MEN_WOMEN_2022
-    if "auto" in t and "retail" in t and ("2019" in t and "2023" in t):
+
+    # Retail intents
+    if "retail" in t and _has_any(t, ("top", "biggest", "largest")) and _has_any(t, ("category", "categories", "sector", "sectors")) and "2023" in t:
+        return SQL_FALLBACK_TOP_RETAIL_2023
+    if "retail" in t and _has_any(t, ("auto", "motor vehicle", "motor vehicles")) and "2019" in t and "2023" in t:
         return SQL_FALLBACK_AUTO_RETAIL_2019_2023
-    if ("treasury" in t and "2020" in t) or ("treasury bill" in t and "since 2020" in t):
-        return SQL_FALLBACK_TREASURY_SINCE_2020
-    if "interest" in t and ("2022" in t and "2023" in t):
-        return SQL_FALLBACK_INTEREST_2022_2023
-    if "industrial" in t and "highest" in t and "2023" in t:
-        return SQL_FALLBACK_TOP_INDUSTRIAL_2023
-    if "retail" in t and ("top" in t or "category" in t) and "2023" in t:
-        return SQL_FALLBACK_TOP_RETAIL_2023
-    if "biggest retail sectors" in t or ("biggest" in t and "retail" in t and "2023" in t):
-        return SQL_FALLBACK_TOP_RETAIL_2023
-    if ("aerospace" in t or "aircraft" in t) and ("industrial production" in t or "production" in t):
-        return SQL_FALLBACK_AEROSPACE_2019_2023
     if (
         "retail" in t
         and ("growth" in t or "compare" in t)
@@ -227,6 +233,19 @@ def _fallback_sql_for_question(q: str) -> str | None:
         and "2022" in t
     ):
         return SQL_FALLBACK_RETAIL_BEFORE_AFTER_HIKES_2022
+
+    # Interest-rate intents
+    if ("treasury" in t and "2020" in t) or ("treasury bill" in t and "since 2020" in t):
+        return SQL_FALLBACK_TREASURY_SINCE_2020
+    if _has_any(t, ("interest", "rates", "rate")) and "2022" in t and "2023" in t:
+        return SQL_FALLBACK_INTEREST_2022_2023
+
+    # Industrial-production intents
+    if _has_any(t, ("industrial", "industry")) and _has_any(t, ("highest", "top", "biggest", "largest")) and "2023" in t:
+        return SQL_FALLBACK_TOP_INDUSTRIAL_2023
+    if _has_any(t, ("aerospace", "aircraft", "aviation")) and _has_any(t, ("industrial production", "production")):
+        return SQL_FALLBACK_AEROSPACE_2019_2023
+
     return None
 
 

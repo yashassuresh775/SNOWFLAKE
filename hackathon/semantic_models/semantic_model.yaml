@@ -24,6 +24,11 @@ custom_instructions: |
   (aerospace, aircraft, auto, motor vehicles, chemicals, computers, etc.) map to industrial_production. The Fed series title is in
   VARIABLE_NAME; filter with VARIABLE_NAME ILIKE '%keyword%' using the user words and close synonyms (e.g. aerospace OR aircraft OR aviation).
   Trend questions: SELECT DATE, AVG(PRODUCTION_INDEX) ... GROUP BY DATE ORDER BY DATE. Do not refuse for lack of tables when industrial_production applies.
+  Retail ranking questions ("top/biggest/largest retail sectors/categories in 2023") map to retail_sales with UNIT='USD',
+  grouped by VARIABLE_NAME and ordered by SUM(RETAIL_SALES) DESC.
+  Interest-rate comparison windows in 2022-2023 should use interest_rates and monthly Treasury bill rows when instrument is unspecified.
+  Subsidiary listing questions ("what subsidiaries does X own?") should query company_relationships with COMPANY_NAME filter and
+  return RELATED_COMPANY_NAME values ordered alphabetically.
 
 tables:
   - name: unemployment
@@ -464,3 +469,49 @@ verified_queries:
       )
       GROUP BY COMPANY_NAME
       ORDER BY subsidiary_count DESC
+
+  - question: "Which companies have more than 5 subsidiaries?"
+    sql: |
+      SELECT COMPANY_NAME AS parent_company,
+             COUNT(RELATED_COMPANY_NAME) AS subsidiary_count
+      FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
+      GROUP BY COMPANY_NAME
+      HAVING COUNT(RELATED_COMPANY_NAME) > 5
+      ORDER BY subsidiary_count DESC
+
+  - question: "What are the biggest retail sectors in 2023?"
+    sql: |
+      SELECT VARIABLE_NAME AS category, SUM(RETAIL_SALES) AS total_sales
+      FROM HACKATHON.DATA.V_RETAIL_SALES
+      WHERE "DATE" BETWEEN '2023-01-01' AND '2023-12-31'
+        AND UNIT = 'USD'
+      GROUP BY VARIABLE_NAME
+      ORDER BY total_sales DESC
+      LIMIT 10
+
+  - question: "Compare retail sales growth before and after interest rates hikes in 2022."
+    sql: |
+      WITH monthly_sales AS (
+        SELECT DATE_TRUNC('month', "DATE") AS month, SUM(RETAIL_SALES) AS total_sales
+        FROM HACKATHON.DATA.V_RETAIL_SALES
+        WHERE UNIT = 'USD'
+          AND "DATE" BETWEEN '2019-01-01' AND '2024-12-31'
+        GROUP BY 1
+      ),
+      growth AS (
+        SELECT
+          month,
+          total_sales,
+          100 * (total_sales - LAG(total_sales) OVER (ORDER BY month))
+            / NULLIF(LAG(total_sales) OVER (ORDER BY month), 0) AS mom_growth_pct
+        FROM monthly_sales
+      )
+      SELECT
+        CASE WHEN month < '2022-03-01' THEN 'before_hikes' ELSE 'after_hikes' END AS period,
+        ROUND(AVG(mom_growth_pct), 2) AS avg_mom_growth_pct,
+        ROUND(AVG(total_sales), 2) AS avg_monthly_sales,
+        COUNT(*) AS months
+      FROM growth
+      WHERE mom_growth_pct IS NOT NULL
+      GROUP BY 1
+      ORDER BY 1
