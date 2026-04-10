@@ -181,6 +181,29 @@ gdp AS (
       AND ts.VARIABLE_NAME NOT ILIKE '%per capita%'
       AND ts.VARIABLE_NAME NOT ILIKE '%growth%'
       AND ts.VARIABLE_NAME NOT ILIKE '%change%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%percentage%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%value added by industry%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%contribution to percent change%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%share of gdp%'
+      AND COALESCE(ts.UNIT, att.UNIT, '') NOT ILIKE '%percent%'
+      AND (
+            ts.VARIABLE_NAME ILIKE '%real gross domestic product%'
+            OR ts.VARIABLE_NAME ILIKE '%real gdp%'
+            OR (
+                ts.VARIABLE_NAME ILIKE '%gross domestic product%'
+                AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
+                AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
+            )
+            OR (
+                ts.VARIABLE_NAME ILIKE '%gdp%'
+                AND (
+                    COALESCE(ts.UNIT, att.UNIT, '') ILIKE '%billion%'
+                    OR COALESCE(ts.UNIT, att.UNIT, '') ILIKE '%dollar%'
+                )
+                AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
+                AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
+            )
+          )
     GROUP BY ts.GEO_ID, ts."DATE"
 ),
 spine AS (

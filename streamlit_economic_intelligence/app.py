@@ -252,11 +252,186 @@ WHERE (
 ORDER BY ts."DATE"
 """.strip()
 
+# CPI from macro panel (works when V_CPI is empty but wide view still has CPI column populated).
+SQL_FALLBACK_CPI_FROM_MACRO_WIDE = """
+SELECT
+  OBSERVATION_DATE AS "DATE",
+  CPI AS CPI_INDEX,
+  'ECONOMIC_INDICATORS_WIDE.CPI' AS VARIABLE_NAME
+FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+WHERE CPI IS NOT NULL
+  AND OBSERVATION_DATE BETWEEN '2019-01-01' AND '2024-12-31'
+ORDER BY OBSERVATION_DATE
+""".strip()
+
+# Pick the busiest monthly CPI-like series by row count (when VARIABLE id does not contain CPIAUCSL).
+SQL_FALLBACK_CPI_LOOSE_PICK_PUBLIC = """
+WITH candidates AS (
+  SELECT ts.VARIABLE, COUNT(*) AS cnt
+  FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
+  INNER JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
+    ON ts.VARIABLE = att.VARIABLE
+  WHERE ts."DATE" BETWEEN '2019-01-01' AND '2024-12-31'
+    AND ts.VALUE BETWEEN 40 AND 500
+    AND (TRIM(att.FREQUENCY) = 'Monthly' OR att.FREQUENCY ILIKE 'Month%')
+    AND (
+      att.MEASURE ILIKE '%consumer price%'
+      OR att.MEASURE ILIKE '%CPI%'
+      OR ts.VARIABLE_NAME ILIKE '%consumer price%'
+      OR att.VARIABLE_NAME ILIKE '%consumer price%'
+    )
+    AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME, '') NOT ILIKE '%core%'
+    AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME, '') NOT ILIKE '%excluding food%'
+  GROUP BY ts.VARIABLE
+),
+best AS (
+  SELECT VARIABLE FROM candidates ORDER BY cnt DESC NULLS LAST LIMIT 1
+)
+SELECT
+  ts."DATE" AS "DATE",
+  ts.VALUE AS CPI_INDEX,
+  COALESCE(
+    NULLIF(TRIM(ts.VARIABLE_NAME), ''),
+    NULLIF(TRIM(att.VARIABLE_NAME), ''),
+    ts.VARIABLE
+  ) AS VARIABLE_NAME
+FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
+JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
+  ON ts.VARIABLE = att.VARIABLE
+JOIN best b ON ts.VARIABLE = b.VARIABLE
+WHERE ts."DATE" BETWEEN '2019-01-01' AND '2024-12-31'
+ORDER BY ts."DATE"
+""".strip()
+
+SQL_FALLBACK_CPI_LOOSE_PICK_PUBLIC_NO_BAND = """
+WITH candidates AS (
+  SELECT ts.VARIABLE, COUNT(*) AS cnt
+  FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
+  INNER JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
+    ON ts.VARIABLE = att.VARIABLE
+  WHERE ts."DATE" BETWEEN '2019-01-01' AND '2024-12-31'
+    AND (TRIM(att.FREQUENCY) = 'Monthly' OR att.FREQUENCY ILIKE 'Month%')
+    AND (
+      att.MEASURE ILIKE '%consumer price%'
+      OR att.MEASURE ILIKE '%CPI%'
+      OR ts.VARIABLE_NAME ILIKE '%consumer price%'
+      OR att.VARIABLE_NAME ILIKE '%consumer price%'
+    )
+    AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME, '') NOT ILIKE '%core%'
+    AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME, '') NOT ILIKE '%excluding food%'
+  GROUP BY ts.VARIABLE
+),
+best AS (
+  SELECT VARIABLE FROM candidates ORDER BY cnt DESC NULLS LAST LIMIT 1
+)
+SELECT
+  ts."DATE" AS "DATE",
+  ts.VALUE AS CPI_INDEX,
+  COALESCE(
+    NULLIF(TRIM(ts.VARIABLE_NAME), ''),
+    NULLIF(TRIM(att.VARIABLE_NAME), ''),
+    ts.VARIABLE
+  ) AS VARIABLE_NAME
+FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
+JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
+  ON ts.VARIABLE = att.VARIABLE
+JOIN best b ON ts.VARIABLE = b.VARIABLE
+WHERE ts."DATE" BETWEEN '2019-01-01' AND '2024-12-31'
+ORDER BY ts."DATE"
+""".strip()
+
+SQL_FALLBACK_CPI_LOOSE_PICK_CYBERSYN = """
+WITH candidates AS (
+  SELECT ts.VARIABLE, COUNT(*) AS cnt
+  FROM SNOWFLAKE_PUBLIC_DATA_FREE.CYBERSYN.financial_economic_indicators_timeseries ts
+  INNER JOIN SNOWFLAKE_PUBLIC_DATA_FREE.CYBERSYN.financial_economic_indicators_attributes att
+    ON ts.VARIABLE = att.VARIABLE
+  WHERE ts."DATE" BETWEEN '2019-01-01' AND '2024-12-31'
+    AND ts.VALUE BETWEEN 40 AND 500
+    AND (TRIM(att.FREQUENCY) = 'Monthly' OR att.FREQUENCY ILIKE 'Month%')
+    AND (
+      att.MEASURE ILIKE '%consumer price%'
+      OR att.MEASURE ILIKE '%CPI%'
+      OR ts.VARIABLE_NAME ILIKE '%consumer price%'
+      OR att.VARIABLE_NAME ILIKE '%consumer price%'
+    )
+    AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME, '') NOT ILIKE '%core%'
+    AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME, '') NOT ILIKE '%excluding food%'
+  GROUP BY ts.VARIABLE
+),
+best AS (
+  SELECT VARIABLE FROM candidates ORDER BY cnt DESC NULLS LAST LIMIT 1
+)
+SELECT
+  ts."DATE" AS "DATE",
+  ts.VALUE AS CPI_INDEX,
+  COALESCE(
+    NULLIF(TRIM(ts.VARIABLE_NAME), ''),
+    NULLIF(TRIM(att.VARIABLE_NAME), ''),
+    ts.VARIABLE
+  ) AS VARIABLE_NAME
+FROM SNOWFLAKE_PUBLIC_DATA_FREE.CYBERSYN.financial_economic_indicators_timeseries ts
+JOIN SNOWFLAKE_PUBLIC_DATA_FREE.CYBERSYN.financial_economic_indicators_attributes att
+  ON ts.VARIABLE = att.VARIABLE
+JOIN best b ON ts.VARIABLE = b.VARIABLE
+WHERE ts."DATE" BETWEEN '2019-01-01' AND '2024-12-31'
+ORDER BY ts."DATE"
+""".strip()
+
+# Headline real GDP (quarterly) — hits marketplace directly; excludes industry % of GDP rows.
 SQL_FALLBACK_GDP_QUARTERLY_5Y = """
-SELECT "DATE", GDP_VALUE, UNIT, VARIABLE_NAME, FREQUENCY
-FROM HACKATHON.DATA.V_GDP
-WHERE "DATE" >= DATEADD(year, -5, CURRENT_DATE())
-ORDER BY "DATE"
+SELECT
+  ts."DATE" AS "DATE",
+  ts.VALUE AS GDP_VALUE,
+  COALESCE(ts.UNIT, att.UNIT, '') AS UNIT,
+  ts.VARIABLE_NAME,
+  att.FREQUENCY
+FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
+JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
+  ON ts.VARIABLE = att.VARIABLE
+WHERE (
+    att.RELEASE_SOURCE ILIKE '%Economic Analysis%'
+    OR att.RELEASE_SOURCE ILIKE '%BEA%'
+    OR TRIM(att.RELEASE_SOURCE) = 'Bureau of Economic Analysis'
+  )
+  AND att.FREQUENCY = 'Quarterly'
+  AND (
+    att.MEASURE ILIKE '%gross domestic product%'
+    OR att.MEASURE ILIKE '%GDP%'
+    OR TRIM(att.MEASURE) = 'Gross Domestic Product'
+  )
+  AND (
+    ts.VARIABLE_NAME ILIKE '%gross domestic%'
+    OR ts.VARIABLE_NAME ILIKE '%GDP%'
+  )
+  AND ts.VARIABLE_NAME NOT ILIKE '%per capita%'
+  AND ts.VARIABLE_NAME NOT ILIKE '%growth%'
+  AND ts.VARIABLE_NAME NOT ILIKE '%change%'
+  AND ts.VARIABLE_NAME NOT ILIKE '%percentage%'
+  AND ts.VARIABLE_NAME NOT ILIKE '%value added by industry%'
+  AND ts.VARIABLE_NAME NOT ILIKE '%contribution to percent change%'
+  AND ts.VARIABLE_NAME NOT ILIKE '%share of gdp%'
+  AND COALESCE(ts.UNIT, att.UNIT, '') NOT ILIKE '%percent%'
+  AND (
+    ts.VARIABLE_NAME ILIKE '%real gross domestic product%'
+    OR ts.VARIABLE_NAME ILIKE '%real gdp%'
+    OR (
+      ts.VARIABLE_NAME ILIKE '%gross domestic product%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
+    )
+    OR (
+      ts.VARIABLE_NAME ILIKE '%gdp%'
+      AND (
+        COALESCE(ts.UNIT, att.UNIT, '') ILIKE '%billion%'
+        OR COALESCE(ts.UNIT, att.UNIT, '') ILIKE '%dollar%'
+      )
+      AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
+      AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
+    )
+  )
+  AND ts."DATE" >= DATEADD(year, -5, CURRENT_DATE())
+ORDER BY ts."DATE"
 """.strip()
 
 SQL_FALLBACK_MACRO_UNEMPLOYMENT_CPI_2020 = """
@@ -422,6 +597,7 @@ def _fallback_sql_for_question(q: str) -> str | None:
                 "show",
                 "index",
                 "headline",
+                "inflation",
             ),
         ):
             return SQL_FALLBACK_CPI_MONTHLY_2019_2024
@@ -465,6 +641,7 @@ def _is_cpi_headline_series_intent(q: str) -> bool:
             "show",
             "index",
             "headline",
+            "inflation",
         ),
     )
 
@@ -474,24 +651,74 @@ def _recover_cpi_from_marketplace(
     sql: str | None,
     question: str,
 ) -> tuple[pd.DataFrame, str | None]:
-    """If V_CPI path failed, try direct CPIAUCSL from marketplace (PUBLIC_DATA_FREE then CYBERSYN)."""
+    """If V_CPI path failed, try macro_wide, CPIAUCSL, then loose monthly CPI-like series pickers."""
     if not _is_cpi_headline_series_intent(question):
         return df, sql
     if df is not None and not df.empty and "Error" not in df.columns:
         return df, sql
     prior = (sql or SQL_FALLBACK_CPI_MONTHLY_2019_2024).strip()
-    base_note = (
-        "\n\n-- Note: HACKATHON.DATA.V_CPI returned no usable rows (or SQL errored). "
-        "Using direct FRED **CPIAUCSL** (headline CPI-U, seasonally adjusted) from the marketplace listing."
-    )
-    for alt_sql, schema_tag in (
-        (SQL_FALLBACK_CPI_CPIAUCSL_PUBLIC, "PUBLIC_DATA_FREE"),
-        (SQL_FALLBACK_CPI_CPIAUCSL_CYBERSYN, "CYBERSYN"),
-    ):
+    attempts: list[tuple[str, str]] = [
+        (SQL_FALLBACK_CPI_FROM_MACRO_WIDE, "HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE.CPI"),
+        (SQL_FALLBACK_CPI_CPIAUCSL_PUBLIC, "SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE (CPIAUCSL/CUSR0000SA0)"),
+        (SQL_FALLBACK_CPI_CPIAUCSL_CYBERSYN, "SNOWFLAKE_PUBLIC_DATA_FREE.CYBERSYN (CPIAUCSL/CUSR0000SA0)"),
+        (SQL_FALLBACK_CPI_LOOSE_PICK_PUBLIC, "PUBLIC_DATA_FREE (auto-pick monthly CPI-like series)"),
+        (SQL_FALLBACK_CPI_LOOSE_PICK_PUBLIC_NO_BAND, "PUBLIC_DATA_FREE (auto-pick, no value band)"),
+        (SQL_FALLBACK_CPI_LOOSE_PICK_CYBERSYN, "CYBERSYN (auto-pick monthly CPI-like series)"),
+    ]
+    for alt_sql, tag in attempts:
         alt_df = run_sql(alt_sql)
         if alt_df is not None and not alt_df.empty and "Error" not in alt_df.columns:
-            combined = prior + base_note + f" Schema: SNOWFLAKE_PUBLIC_DATA_FREE.{schema_tag}."
-            return alt_df, combined
+            note = (
+                f"\n\n-- Note: V_CPI / prior CPI SQL returned no rows or errored. "
+                f"Using fallback CPI source: {tag}."
+            )
+            return alt_df, prior + note
+    return df, sql
+
+
+def _is_gdp_headline_quarterly_intent(q: str) -> bool:
+    t = _normalize_question(q)
+    if "gdp" not in t and "gross domestic product" not in t:
+        return False
+    return _has_any(
+        t,
+        ("quarter", "last 5", "five year", "5 year", "trend", "show", "real", "year", "annual"),
+    )
+
+
+def _gdp_result_looks_like_industry_share(df: pd.DataFrame) -> bool:
+    if df is None or df.empty or "Error" in df.columns:
+        return False
+    vcol = next((c for c in df.columns if str(c).upper() == "VARIABLE_NAME"), None)
+    ucol = next((c for c in df.columns if str(c).upper() == "UNIT"), None)
+    if vcol is None:
+        return False
+    s = df[vcol].astype(str)
+    if (s.str.contains(r"percentage|value added by industry|share of gdp|contribution to", case=False, na=False)).mean() > 0.2:
+        return True
+    if ucol is not None:
+        u = df[ucol].astype(str)
+        if u.str.contains(r"percent", case=False, na=False).mean() > 0.45:
+            return True
+    return False
+
+
+def _recover_gdp_headline_if_dirty(
+    df: pd.DataFrame,
+    sql: str | None,
+    question: str,
+) -> tuple[pd.DataFrame, str | None]:
+    """Replace Analyst GDP SQL when results are clearly industry-% rows, not headline level GDP."""
+    if not _is_gdp_headline_quarterly_intent(question):
+        return df, sql
+    if df is not None and not df.empty and "Error" not in df.columns and not _gdp_result_looks_like_industry_share(df):
+        return df, sql
+    alt = run_sql(SQL_FALLBACK_GDP_QUARTERLY_5Y)
+    if alt is not None and not alt.empty and "Error" not in alt.columns:
+        note = (
+            "\n\n-- Note: Replaced with verified **headline GDP** (BEA quarterly, billions — not industry % of GDP)."
+        )
+        return alt, (sql or "-- (prior statement)") + note
     return df, sql
 
 
@@ -567,11 +794,10 @@ def _assistant_reply_when_no_narrative(
         t0 = _normalize_question(question)
         if _has_any(t0, ("cpi", "consumer price", "headline cpi", "inflation")) and "gdp" not in t0:
             return (
-                "**No CPI rows** after **V_CPI** and a direct **CPIAUCSL** marketplace query. "
-                "That usually means the Finance & Economics listing is not available to this role, or the share uses a schema "
-                "other than `PUBLIC_DATA_FREE` / `CYBERSYN`. Run `hackathon/sql/discover_cpi_gdp_filters.sql` in Snowsight, "
-                "redeploy `V_CPI` from `hackathon/economic_indicators_views.sql` (swap schema if needed), and confirm "
-                "`SELECT COUNT(*) FROM HACKATHON.DATA.V_CPI` returns rows."
+                "**No CPI rows** after **V_CPI**, **ECONOMIC_INDICATORS_WIDE**, **CPIAUCSL/CUSR0000SA0**, and **auto-picked** monthly CPI-like series. "
+                "Confirm this role can read `SNOWFLAKE_PUBLIC_DATA_FREE` (or `CYBERSYN`) Finance & Economics tables, deploy "
+                "`HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE` (`hackathon/sql/02_economic_indicators_wide.sql`), and run "
+                "`hackathon/sql/discover_cpi_gdp_filters.sql` in Snowsight to align `V_CPI` with your listing."
             )
         return (
             "**No data** for that query (empty result or SQL error), so there is nothing to chart yet. "
@@ -3075,6 +3301,7 @@ if question:
                             df = df_fb
                             sql = fb_sql + "\n\n-- Note: Cortex Analyst SQL failed; ran verified fallback query."
                     df, sql = _recover_cpi_from_marketplace(df, sql, question_for_model)
+                    df, sql = _recover_gdp_headline_if_dirty(df, sql, question_for_model)
                     st.session_state.last_sql = sql
                     st.session_state.last_df = df
                     _progress_step("Drafting an executive summary with Cortex COMPLETE…")
@@ -3121,6 +3348,7 @@ if question:
                             + "\n\n-- Note: Cortex Analyst did not return SQL; ran verified fallback query."
                         )
                         df, _fsql = _recover_cpi_from_marketplace(df, _fsql, question_for_model)
+                        df, _fsql = _recover_gdp_headline_if_dirty(df, _fsql, question_for_model)
                         st.session_state.last_sql = _fsql
                         st.session_state.last_df = df
                         _progress_step("Summarizing fallback results…")
