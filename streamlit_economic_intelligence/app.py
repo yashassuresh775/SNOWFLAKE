@@ -50,6 +50,13 @@ PERSONAS: dict[str, str] = {
     ),
 }
 
+# Short labels for the UI (aligned with PERSONAS prompts above).
+PERSONA_UI_HINTS: dict[str, str] = {
+    "Executive": "Board-style brief: concise, plain language, business implications first, minimal jargon.",
+    "Analyst": "Quantitative: cite numbers and ranges, call out trends and volatility.",
+    "Press": "Newsroom voice: punchy lede, at most two short sentences, headline-ready.",
+}
+
 # Notable dates overlapping typical macro series (YYYY-MM-DD).
 ECONOMIC_EVENTS: tuple[tuple[str, str], ...] = (
     ("2020-03-15", "COVID shock — emergency policy / market stress"),
@@ -773,10 +780,56 @@ div[data-testid="stPlotlyChart"] {
 div[data-testid="stDataFrame"] {
     animation: chart-reveal-pop 0.55s ease-out both !important;
 }
+.persona-hints {
+    margin: 8px 0 2px 0;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: linear-gradient(145deg, #fafcfd 0%, #f0f4f8 100%);
+    border: 1px solid rgba(21, 101, 192, 0.12);
+    font-size: 13px;
+    line-height: 1.5;
+    color: #4a5568;
+}
+.persona-hint-row {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    margin: 4px 0;
+    padding: 6px 8px;
+    border-radius: 6px;
+}
+.persona-hint-row + .persona-hint-row {
+    margin-top: 2px;
+}
+.persona-hint-active {
+    background: rgba(21, 101, 192, 0.08);
+    border: 1px solid rgba(21, 101, 192, 0.14);
+}
+.persona-hint-name {
+    flex: 0 0 92px;
+    font-weight: 700;
+    color: #0d47a1;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+}
+.persona-hint-text { flex: 1; min-width: 0; }
 </style>
 """,
     unsafe_allow_html=True,
 )
+
+
+def _render_persona_hints(selected: str) -> None:
+    parts: list[str] = ['<div class="persona-hints">']
+    for name in PERSONAS:
+        hint = html.escape(PERSONA_UI_HINTS[name])
+        cls = "persona-hint-row persona-hint-active" if name == selected else "persona-hint-row"
+        parts.append(
+            f'<div class="{cls}"><span class="persona-hint-name">{html.escape(name)}</span>'
+            f'<span class="persona-hint-text">{hint}</span></div>'
+        )
+    parts.append("</div>")
+    st.markdown("".join(parts), unsafe_allow_html=True)
 
 
 def _connection_auth():
@@ -1167,8 +1220,9 @@ st.radio(
     list(PERSONAS.keys()),
     horizontal=True,
     key="persona_perspective",
-    help="Alters Cortex COMPLETE tone (Executive / Analyst / Press) for summaries.",
+    help="Cortex COMPLETE uses a different voice per persona. Descriptions are shown in the panel directly below.",
 )
+_render_persona_hints(st.session_state.get("persona_perspective") or list(PERSONAS.keys())[0])
 
 st.divider()
 
