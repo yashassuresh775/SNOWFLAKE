@@ -69,6 +69,8 @@ spine AS (
 SELECT
     s.geo_id,
     s.observation_date,
+    YEAR(s.observation_date) AS observation_year,
+    DATE_TRUNC('month', s.observation_date) AS observation_month,
     u.unemployment_rate,
     r.retail_sales,
     ff.fed_funds_rate,

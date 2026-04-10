@@ -4,8 +4,8 @@ Hackathon **AI-02** app: natural language BI over `HACKATHON.DATA.ECONOMIC_INDIC
 
 ## Prereqs in Snowflake
 
-1. Run `hackathon/economic_indicators_views.sql`, then `hackathon/sql/02_economic_indicators_wide.sql`, then `hackathon/sql/03_semantic_stage.sql`.
-2. Upload the semantic model:
+1. Run `hackathon/economic_indicators_views.sql`, then **`hackathon/sql/02_economic_indicators_wide.sql`** (adds `OBSERVATION_YEAR` / `OBSERVATION_MONTH` for the semantic model), then `hackathon/sql/03_semantic_stage.sql`.
+2. Upload the semantic model (**re-PUT after any YAML change**):
 
    ```sql
    PUT file://economic_model.yaml @HACKATHON.DATA.SEMANTIC_MODELS AUTO_COMPRESS=FALSE OVERWRITE=TRUE;

@@ -1,96 +1,196 @@
+# Cortex Analyst semantic model — US Finance & Economics (Snowflake Data: Finance & Economics)
+# Physical base: HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE (run economic_indicators_views.sql + 02_economic_indicators_wide.sql first)
+# Upload: PUT to @HACKATHON.DATA.SEMANTIC_MODELS
+
 name: us_economic_intelligence
-description: US macroeconomic indicators for natural language BI — unemployment, CPI, GDP, Fed funds, retail, industrial production.
+description: |
+  US macroeconomic time series for conversational BI: labor market, inflation (CPI), output (GDP, industrial production),
+  retail sales, and interest rates (Fed funds, Treasury). Grain is one row per GEO_ID and OBSERVATION_DATE; measures are
+  left-joined from BLS, Census, and Federal Reserve feeds via SNOWFLAKE_PUBLIC_DATA_FREE.
+
 custom_instructions: |
-  Prefer monthly series when users ask for "trend" or "over time" unless they specify quarterly or annual.
-  Round numeric outputs to 2 decimal places. Use OBSERVATION_DATE for time filters.
-  When comparing indicators, align on GEO_ID and OBSERVATION_DATE. Default to national / US series when geography is unspecified.
+  Default to US national context when the user does not specify a country or state.
+  Prefer monthly frequency for trends ("over time", "since 2020") unless the user asks for quarterly, annual, or YoY.
+  Filter on OBSERVATION_DATE for time ranges. Use OBSERVATION_YEAR or OBSERVATION_MONTH for "by year" or "by month" rollups.
+  When a measure is NULL for a date, treat it as missing for that series — do not invent values.
+  Round displayed numbers to 2 decimal places unless the user asks for more precision.
+  For "current" or "latest" values, order by OBSERVATION_DATE DESC and take the first non-null observation for that measure.
+  For comparisons between two indicators (e.g. unemployment vs CPI), join on GEO_ID and OBSERVATION_DATE in one SELECT.
 
 tables:
   - name: economic_indicators
-    description: Monthly US economic indicators joined on geography and observation date — unemployment, CPI, GDP, Fed funds, retail sales, industrial production, Treasury yields.
+    description: |
+      Wide monthly (mostly) economic fact table at GEO_ID × OBSERVATION_DATE grain. Each column is a distinct indicator
+      from curated views on SNOWFLAKE_PUBLIC_DATA_FREE financial_economic_indicators_* tables.
+
     base_table:
       database: HACKATHON
       schema: DATA
       table: ECONOMIC_INDICATORS_WIDE
 
+    primary_key:
+      columns:
+        - GEO_ID
+        - OBSERVATION_DATE
+
+    time_dimensions:
+      - name: observation_date
+        synonyms: ["date", "day", "period", "when", "time", "as of", "calendar date"]
+        description: Calendar date of the observation; use for ranges, trends, and latest-available logic.
+        expr: OBSERVATION_DATE
+        data_type: date
+        unique: false
+
     dimensions:
       - name: geo_id
-        synonyms: ["geo", "region", "fips", "geography", "area", "location"]
-        description: Geographic identifier for the economic series (e.g. national or state FIPS).
+        synonyms: ["geo", "fips", "geography", "region", "area", "location", "state", "country code"]
+        description: Geographic identifier for the series (e.g. US national or state FIPS-style codes from the source).
         expr: GEO_ID
         data_type: text
         unique: false
 
-      - name: observation_date
-        synonyms: ["date", "period", "month", "year", "when", "time", "day"]
-        description: Calendar date of the economic observation.
-        expr: OBSERVATION_DATE
+      - name: observation_year
+        synonyms: ["year", "calendar year", "annual", "Y", "in 2020", "2020"]
+        description: Calendar year extracted from OBSERVATION_DATE for annual rollups and filters.
+        expr: OBSERVATION_YEAR
+        data_type: number
+        unique: false
+
+      - name: observation_month
+        synonyms: ["month", "month start", "first of month", "by month", "monthly bucket"]
+        description: Month start timestamp (DATE_TRUNC month) for aligning monthly series.
+        expr: OBSERVATION_MONTH
         data_type: date
         unique: false
 
     measures:
       - name: unemployment_rate
-        synonyms: ["jobless rate", "unemployment", "jobs", "labor", "out of work", "unemployed", "U-3"]
-        description: US unemployment rate as a percent of the labor force.
+        synonyms:
+          [
+            "jobless rate",
+            "unemployment",
+            "U-3",
+            "labor market",
+            "out of work",
+            "unemployed",
+            "jobs",
+          ]
+        description: Unemployment rate as a percent of the labor force (BLS-style series in curated view).
         expr: UNEMPLOYMENT_RATE
         data_type: number
         default_aggregation: avg
         sample_values: [3.5, 4.0, 14.7, 6.0, 3.7]
 
       - name: cpi
-        synonyms: ["inflation", "consumer price", "cost of living", "prices", "CPI", "price index"]
-        description: Consumer Price Index level — higher values indicate higher price levels over time.
+        synonyms:
+          [
+            "inflation",
+            "consumer price index",
+            "consumer price",
+            "cost of living",
+            "prices",
+            "CPI",
+            "price level",
+          ]
+        description: Consumer Price Index level (higher = higher price level vs index base over time).
         expr: CPI
         data_type: number
         default_aggregation: avg
         sample_values: [250, 260, 280, 296, 310]
 
       - name: fed_funds_rate
-        synonyms: ["interest rate", "federal funds", "fed rate", "monetary policy", "rate hike", "benchmark rate", "policy rate"]
-        description: Effective Federal Funds rate or closely related policy rate series in the wide table.
+        synonyms:
+          [
+            "federal funds rate",
+            "fed funds",
+            "fed rate",
+            "policy rate",
+            "benchmark rate",
+            "interest rate",
+            "FOMC rate",
+            "rate hikes",
+          ]
+        description: Short-term policy / effective Fed funds related rate from the wide table (Fed series).
         expr: FED_FUNDS_RATE
         data_type: number
         default_aggregation: avg
-        sample_values: [0.08, 0.5, 2.5, 5.25]
+        sample_values: [0.08, 0.25, 2.5, 5.33]
 
       - name: gdp
-        synonyms: ["gross domestic product", "economic output", "economy size", "economic growth", "GDP", "real gdp"]
-        description: Gross domestic product level or index as provided in the source feed.
+        synonyms:
+          [
+            "gross domestic product",
+            "GDP",
+            "economic output",
+            "national output",
+            "economy size",
+            "real gdp",
+          ]
+        description: GDP level or index as provided by the source feed (frequency may be monthly/quarterly/annual in data).
         expr: GDP
         data_type: number
         default_aggregation: avg
 
       - name: retail_sales
-        synonyms: ["retail", "sales", "consumer spending", "census retail", "store sales"]
-        description: Monthly retail sales indicator from Census retail series.
+        synonyms:
+          [
+            "retail sales",
+            "retail",
+            "census retail",
+            "store sales",
+            "consumer spending at retail",
+          ]
+        description: Monthly retail sales indicator (Census retail series in curated view).
         expr: RETAIL_SALES
         data_type: number
         default_aggregation: avg
 
       - name: industrial_production
-        synonyms: ["industrial production", "factory output", "manufacturing index", "ip"]
+        synonyms:
+          [
+            "industrial production",
+            "IP index",
+            "factory output",
+            "manufacturing production",
+            "Fed industrial production",
+          ]
         description: Federal Reserve industrial production index.
         expr: INDUSTRIAL_PRODUCTION
         data_type: number
         default_aggregation: avg
 
       - name: treasury_10yr
-        synonyms: ["10-year yield", "treasury yield", "bond rate", "long-term rate", "10Y", "ten year"]
-        description: Long-term Treasury yield where available in the wide table.
+        synonyms:
+          [
+            "10-year treasury",
+            "10 year yield",
+            "10Y treasury",
+            "long-term treasury yield",
+            "treasury yield",
+            "bond yield",
+          ]
+        description: Long-term Treasury yield where present in the wide table (10-year style series).
         expr: TREASURY_10YR
         data_type: number
         default_aggregation: avg
 
+      - name: treasury_fed_spread
+        synonyms:
+          ["yield curve", "10y minus fed", "term spread", "treasury spread", "rates spread"]
+        description: Simple spread between 10Y Treasury yield and Fed funds rate (rough policy vs long-rate comparison).
+        expr: TREASURY_10YR - FED_FUNDS_RATE
+        data_type: number
+        default_aggregation: avg
+
 verified_queries:
-  - name: unemployment_peak_2020
-    question: What was the peak unemployment rate in 2020?
+  - name: covid_peak_unemployment
+    question: What was the peak unemployment rate in 2020 and when did it occur?
     sql: |
-      SELECT MAX(UNEMPLOYMENT_RATE) AS peak_unemployment,
-             DATE_TRUNC('month', OBSERVATION_DATE) AS month
+      SELECT OBSERVATION_DATE, UNEMPLOYMENT_RATE AS PEAK_UNEMPLOYMENT
       FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE OBSERVATION_DATE BETWEEN '2020-01-01' AND '2020-12-31'
-      GROUP BY 2
-      ORDER BY 1 DESC
+      WHERE OBSERVATION_YEAR = 2020
+        AND UNEMPLOYMENT_RATE IS NOT NULL
+      ORDER BY UNEMPLOYMENT_RATE DESC
       LIMIT 1
 
   - name: unemployment_trend_since_2020
@@ -102,11 +202,106 @@ verified_queries:
         AND UNEMPLOYMENT_RATE IS NOT NULL
       ORDER BY OBSERVATION_DATE
 
-  - name: retail_sales_trend_covid
+  - name: retail_sales_since_covid
     question: Show retail sales trend since COVID
     sql: |
       SELECT OBSERVATION_DATE, RETAIL_SALES
       FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
-      WHERE OBSERVATION_DATE >= '2020-01-01'
+      WHERE OBSERVATION_DATE >= '2020-03-01'
         AND RETAIL_SALES IS NOT NULL
+      ORDER BY OBSERVATION_DATE
+
+  - name: fed_funds_2022
+    question: How did the Fed funds rate change during 2022?
+    sql: |
+      SELECT OBSERVATION_DATE, FED_FUNDS_RATE
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE OBSERVATION_YEAR = 2022
+        AND FED_FUNDS_RATE IS NOT NULL
+      ORDER BY OBSERVATION_DATE
+
+  - name: unemployment_and_cpi_since_2020
+    question: Compare unemployment and inflation since 2020
+    sql: |
+      SELECT OBSERVATION_DATE, UNEMPLOYMENT_RATE, CPI
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE OBSERVATION_DATE >= '2020-01-01'
+        AND (UNEMPLOYMENT_RATE IS NOT NULL OR CPI IS NOT NULL)
+      ORDER BY OBSERVATION_DATE
+
+  - name: latest_fed_funds
+    question: What is the current Fed funds rate?
+    sql: |
+      SELECT OBSERVATION_DATE, FED_FUNDS_RATE
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE FED_FUNDS_RATE IS NOT NULL
+      ORDER BY OBSERVATION_DATE DESC
+      LIMIT 1
+
+  - name: latest_unemployment
+    question: What is the current unemployment rate?
+    sql: |
+      SELECT OBSERVATION_DATE, UNEMPLOYMENT_RATE
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE UNEMPLOYMENT_RATE IS NOT NULL
+      ORDER BY OBSERVATION_DATE DESC
+      LIMIT 1
+
+  - name: industrial_production_trend
+    question: Show industrial production over the last 5 years
+    sql: |
+      SELECT OBSERVATION_DATE, INDUSTRIAL_PRODUCTION
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE OBSERVATION_DATE >= DATEADD(year, -5, CURRENT_DATE())
+        AND INDUSTRIAL_PRODUCTION IS NOT NULL
+      ORDER BY OBSERVATION_DATE
+
+  - name: gdp_trend_5y
+    question: Show GDP over the last 5 years
+    sql: |
+      SELECT OBSERVATION_DATE, GDP
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE OBSERVATION_DATE >= DATEADD(year, -5, CURRENT_DATE())
+        AND GDP IS NOT NULL
+      ORDER BY OBSERVATION_DATE
+
+  - name: ten_year_treasury_latest
+    question: What is the 10-year Treasury yield?
+    sql: |
+      SELECT OBSERVATION_DATE, TREASURY_10YR
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE TREASURY_10YR IS NOT NULL
+      ORDER BY OBSERVATION_DATE DESC
+      LIMIT 1
+
+  - name: key_indicators_2020
+    question: Show unemployment, CPI, Fed funds, and retail sales in 2020
+    sql: |
+      SELECT
+        OBSERVATION_DATE,
+        UNEMPLOYMENT_RATE,
+        CPI,
+        FED_FUNDS_RATE,
+        RETAIL_SALES
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE OBSERVATION_YEAR = 2020
+      ORDER BY OBSERVATION_DATE
+
+  - name: year_highest_unemployment
+    question: Which year had the highest average unemployment in the dataset?
+    sql: |
+      SELECT OBSERVATION_YEAR, AVG(UNEMPLOYMENT_RATE) AS AVG_UNEMPLOYMENT
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE UNEMPLOYMENT_RATE IS NOT NULL
+      GROUP BY OBSERVATION_YEAR
+      ORDER BY AVG_UNEMPLOYMENT DESC
+      LIMIT 1
+
+  - name: fed_funds_and_cpi_correlation_window
+    question: Show Fed funds rate and CPI over the last 10 years
+    sql: |
+      SELECT OBSERVATION_DATE, FED_FUNDS_RATE, CPI
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE OBSERVATION_DATE >= DATEADD(year, -10, CURRENT_DATE())
+        AND (FED_FUNDS_RATE IS NOT NULL OR CPI IS NOT NULL)
       ORDER BY OBSERVATION_DATE
