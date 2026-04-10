@@ -70,6 +70,12 @@ cpi AS (
             att.RELEASE_SOURCE ILIKE '%Labor Statistics%'
             OR att.RELEASE_SOURCE ILIKE '%BLS%'
             OR TRIM(att.RELEASE_SOURCE) = 'Bureau of Labor Statistics'
+            OR att.RELEASE_SOURCE ILIKE '%Federal Reserve%'
+            OR att.RELEASE_SOURCE ILIKE '%FRED%'
+            OR att.RELEASE_SOURCE ILIKE '%Economic Data%'
+            OR att.RELEASE_NAME ILIKE '%Bureau of Labor Statistics%'
+            OR att.RELEASE_NAME ILIKE '%Consumer Price%'
+            OR att.RELEASE_NAME ILIKE '%Labor Statistics%'
           )
       AND (
             TRIM(att.FREQUENCY) = 'Monthly'
@@ -106,11 +112,17 @@ cpi AS (
       AND (
             COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%all items%'
             OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%all urban%'
+            OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%urban consumers%'
             OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%cpi-u%'
             OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%consumer price index%'
+            OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%cpiaucsl%'
             OR (
                 COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%CPI%'
                 AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%U.S. city average%'
+            )
+            OR (
+                COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%CPI%'
+                AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%city average%'
             )
           )
       AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) NOT ILIKE '%less food and energy%'

@@ -4,7 +4,7 @@
 -- 1) Which schema has attributes? (PUBLIC_DATA_FREE vs CYBERSYN)
 -- SHOW SCHEMAS IN DATABASE SNOWFLAKE_PUBLIC_DATA_FREE;
 --
--- 2) CPI-like variable names (try PUBLIC_DATA_FREE first; if empty, swap schema to CYBERSYN)
+-- 2) CPI-like variable names on attributes (try PUBLIC_DATA_FREE first; if empty, swap schema to CYBERSYN)
 SELECT DISTINCT VARIABLE_NAME
 FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes
 WHERE VARIABLE_NAME ILIKE '%price%'
@@ -12,6 +12,16 @@ WHERE VARIABLE_NAME ILIKE '%price%'
    OR VARIABLE_NAME ILIKE '%consumer%'
 ORDER BY 1
 LIMIT 50;
+
+-- 2b) CPI often appears under Federal Reserve / FRED in the same share (check RELEASE_SOURCE / RELEASE_NAME)
+SELECT DISTINCT att.RELEASE_SOURCE, att.RELEASE_NAME, att.MEASURE, att.FREQUENCY
+FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
+WHERE att.MEASURE ILIKE '%CPI%'
+   OR att.MEASURE ILIKE '%consumer%price%'
+   OR att.VARIABLE_NAME ILIKE '%CPI%'
+   OR att.VARIABLE_NAME ILIKE '%consumer price%'
+ORDER BY 1, 2
+LIMIT 40;
 
 -- 3) CPI-like MEASURE + RELEASE_SOURCE (includes NULL MEASURE rows — V_CPI used to drop these)
 SELECT DISTINCT att.MEASURE, att.RELEASE_SOURCE, att.FREQUENCY, att.SEASONALLY_ADJUSTED

@@ -89,7 +89,8 @@ AND   att.SEASONALLY_ADJUSTED = 'Seasonally adjusted'
 AND   att.FREQUENCY       = 'Monthly';
 
 -- ============================================================
--- V_CPI  (BLS — headline CPI / all-items style, monthly, seasonally adjusted when labeled)
+-- V_CPI  (headline CPI-U / all-items style, monthly, seasonally adjusted when labeled)
+-- Source may be tagged BLS *or* Federal Reserve / FRED (same Cybersyn table as V_INTEREST_RATES).
 -- Uses COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME): some listings populate the name only on attributes.
 -- MEASURE may be NULL for CPI rows; NULL ILIKE ... fails, so CPI is also detected from the coalesced name.
 -- ============================================================
@@ -108,6 +109,12 @@ WHERE (
         att.RELEASE_SOURCE ILIKE '%Labor Statistics%'
         OR att.RELEASE_SOURCE ILIKE '%BLS%'
         OR TRIM(att.RELEASE_SOURCE) = 'Bureau of Labor Statistics'
+        OR att.RELEASE_SOURCE ILIKE '%Federal Reserve%'
+        OR att.RELEASE_SOURCE ILIKE '%FRED%'
+        OR att.RELEASE_SOURCE ILIKE '%Economic Data%'
+        OR att.RELEASE_NAME ILIKE '%Bureau of Labor Statistics%'
+        OR att.RELEASE_NAME ILIKE '%Consumer Price%'
+        OR att.RELEASE_NAME ILIKE '%Labor Statistics%'
       )
   AND (
         TRIM(att.FREQUENCY) = 'Monthly'
@@ -144,11 +151,17 @@ WHERE (
   AND (
         COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%all items%'
         OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%all urban%'
+        OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%urban consumers%'
         OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%cpi-u%'
         OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%consumer price index%'
+        OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%cpiaucsl%'
         OR (
             COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%CPI%'
             AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%U.S. city average%'
+        )
+        OR (
+            COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%CPI%'
+            AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%city average%'
         )
       )
   AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) NOT ILIKE '%less food and energy%'
