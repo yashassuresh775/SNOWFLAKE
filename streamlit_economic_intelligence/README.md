@@ -8,21 +8,21 @@ It supports:
 - narrative summaries via Cortex COMPLETE,
 - resilient fallback routing for known high-value question patterns.
 
-For deployment steps in Snowsight, see `DEPLOY_SIS.md`.
+**Deployment:** see [§8 Deployment — Streamlit in Snowflake](#8-deployment--streamlit-in-snowflake-snowsight) below (Snowsight / Streamlit in Snowflake).
 
 ## 1) High-level architecture
 
-User question -> Streamlit UI (`app.py`) -> Cortex Analyst REST (`/api/v2/cortex/analyst/message`) -> SQL -> Snowflake tables/views -> DataFrame/chart/table -> Cortex COMPLETE narrative.
+User question → Streamlit UI (`app.py`) → Cortex Analyst REST (`/api/v2/cortex/analyst/message`) → SQL → Snowflake tables/views → DataFrame/chart/table → Cortex COMPLETE narrative.
 
 Core data objects:
 - `HACKATHON.DATA.V_UNEMPLOYMENT`
 - `HACKATHON.DATA.V_RETAIL_SALES`
 - `HACKATHON.DATA.V_INTEREST_RATES`
 - `HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION`
-- `HACKATHON.DATA.V_CPI` — headline CPI-U all items SA (BLS)
-- `HACKATHON.DATA.V_GDP` — quarterly real GDP SAAR (BEA)
+- `HACKATHON.DATA.V_CPI` — headline **Consumer Price Index** for **All Urban Consumers**, **All Items**, **seasonally adjusted** (**CPI-U**, **SA**), **Bureau of Labor Statistics** (**BLS**)
+- `HACKATHON.DATA.V_GDP` — **Bureau of Economic Analysis** (**BEA**) **Gross Domestic Product** (**GDP**) level series (quarterly and annual rows in the view; classic marketplace match)
 - `HACKATHON.DATA.V_COMPANY_RELATIONSHIPS`
-- `HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE` — curated macro panel (one row per `GEO_ID` + `OBSERVATION_DATE`) for multi-indicator comparisons; semantic logical table **`macro_wide`**
+- `HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE` — curated macro panel (one row per `GEO_ID` + `OBSERVATION_DATE`) for multi-indicator comparisons; semantic logical table **`macro_wide`**. **Consumer Price Index** comes from **`V_CPI`**; **Gross Domestic Product** is aggregated inline from the same **BEA** marketplace filters as in `hackathon/sql/02_economic_indicators_wide.sql` (not only from `V_GDP` row counts).
 - Semantic model on stage: `@HACKATHON.DATA.SEMANTIC_MODELS/semantic_model.yaml`
 
 ## 2) Component responsibilities
@@ -55,11 +55,11 @@ This file strongly influences how Analyst maps text to SQL. The **`macro_wide`**
 
 ### `hackathon/economic_indicators_views.sql`
 
-Creates granular source views used by Analyst and fallback SQL, including **`V_CPI`** (BLS headline CPI-U) and **`V_GDP`** (BEA quarterly real GDP).
+Creates granular source views used by Analyst and fallback SQL, including **`V_CPI`** (**BLS** headline **Consumer Price Index**) and **`V_GDP`** (**BEA** **Gross Domestic Product**).
 
 ### `hackathon/sql/02_economic_indicators_wide.sql`
 
-Builds `ECONOMIC_INDICATORS_WIDE` by aggregating each `V_*` domain to a consistent grain, plus CPI/GDP from Public Data, for verified compare-over-time queries.
+Builds `ECONOMIC_INDICATORS_WIDE` by aggregating each `V_*` domain to a consistent grain. **Consumer Price Index** is taken from **`V_CPI`**; **Gross Domestic Product** is computed inline from **BEA** marketplace **financial_economic_indicators** tables with the same filters as **`V_GDP`**.
 
 ### `hackathon/sql/03_semantic_stage.sql`
 
@@ -69,7 +69,78 @@ Creates stage for semantic model YAML.
 
 Thin loader used when Snowsight defaults main entry to `streamlit_app.py`; it executes `app.py`.
 
-## 3) End-to-end process flow
+## 3) Dashboard UI reference (full names)
+
+The main dashboard uses a three-column layout (left rail, center ask/thread/results, right context). Below are the **left-rail** pieces and what the abbreviations mean in full.
+
+### Glossary (abbreviations used in the UI)
+
+| Shorthand | Full form |
+|-----------|-----------|
+| **CPI** | **Consumer Price Index** |
+| **GDP** | **Gross Domestic Product** |
+| **BEA** | **Bureau of Economic Analysis** |
+| **BLS** | **Bureau of Labor Statistics** |
+| **SA** | **Seasonally adjusted** |
+| **Cos.** (tab label) | **Companies** (corporate parent–subsidiary prompts) |
+| **Wide** (tab label) | **Macro wide panel** — questions that join multiple indicators on one timeline via **`ECONOMIC_INDICATORS_WIDE`** |
+
+### Workspace
+
+**Control:** `Workspace` drop-down (`st.selectbox`).
+
+**Options:**
+- **Economic analytics** — default; left rail emphasizes chart-ready macro examples and orders starter tabs **Macro → Consumer Price Index / Gross Domestic Product → Wide → Companies**.
+- **Company relationships** — emphasizes company graph examples; tab order becomes **Companies → Macro → Consumer Price Index / Gross Domestic Product → Wide**.
+
+Same semantic model and `app.py` logic apply in both modes; only example ordering and helper copy change.
+
+### Chart-ready examples (above the expander)
+
+Section label comes from `_workspace_quick_examples()` (e.g. icon + short heading). **Buttons** here are **`EXAMPLE_QUICK`** or **`EXAMPLE_QUICK_COMPANY`** tuples: each row is a full-sentence question. Clicking sets a pending question and reruns the app so the center **Ask & analyze** flow executes it (same as typing in the text box).
+
+### “More starter prompts (tabs)”
+
+**Control:** Streamlit **`st.expander`**, title **“More starter prompts (tabs)”**, opened by default (`expanded=True`).
+
+Purpose: extra categorized prompts without crowding the top of the left column.
+
+### Tab bar inside the expander
+
+Built with **`st.tabs`**. Labels are short for space; meanings:
+
+| Tab label | Full meaning | Prompt list (constant in `app.py`) |
+|-----------|----------------|-------------------------------------|
+| **Macro** | Core macro series (unemployment, interest rates, retail, industrial production, demographics splits) | `SUGGESTED_CORE` |
+| **CPI/GDP** | Headline **Consumer Price Index** and **Gross Domestic Product** questions | `SUGGESTED_PRICES_GDP` |
+| **Wide** | Multi-metric compares on **`ECONOMIC_INDICATORS_WIDE`** (e.g. unemployment vs **Consumer Price Index** on the same dates) | `SUGGESTED_MACRO_WIDE` |
+| **Cos.** | **Companies** — subsidiaries and parent counts | `SUGGESTED_COMPANIES` |
+
+Only one tab’s list is visible at a time; the underline indicates the active tab.
+
+### Suggestion chips (full-width buttons)
+
+**Implementation:** `_render_suggestion_chips(questions, key_prefix)` — one **`st.button`** per question, **`use_container_width=True`**.
+
+**Behavior:** on click, sets **`st.session_state.pending_question`** to that string and calls **`st.rerun()`** so the main analysis pipeline runs as if the user had submitted that text.
+
+### Response voice
+
+**Control:** `Response voice` **`st.selectbox`** — chooses the persona string passed into Cortex COMPLETE for narrative tone.
+
+**“Voice details”** — nested **`st.expander`** with `_render_persona_hints()` for the selected persona.
+
+### Center column (brief)
+
+- **Ask & analyze** — form with **Your question** text input and **Run analysis** submit button.
+- **Conversation thread** — scrollable container for question/answer bubbles.
+- **Results** — charts (native Streamlit charts), tables, correlation notes, SQL transparency when applicable.
+
+### Right column
+
+Contextual panels (semantic hints, SQL transparency, follow-ups) as implemented in `_render_dashboard_layout()` — see `app.py` for current widgets.
+
+## 4) End-to-end process flow
 
 1. User enters a question in the chat UI.
 2. App sends question + semantic model path to Cortex Analyst REST.
@@ -85,7 +156,7 @@ Thin loader used when Snowsight defaults main entry to `streamlit_app.py`; it ex
    - chart/data table,
    - SQL transparency block.
 
-## 4) How iterative improvements are done
+## 5) How iterative improvements are done
 
 We use a two-layer improvement loop:
 
@@ -102,7 +173,7 @@ We use a two-layer improvement loop:
 
 This keeps the app usable in demos while continuously improving native Analyst quality.
 
-## 5) Common traps we found and fixes in place
+## 6) Common traps we found and fixes in place
 
 ### Trap 1: Cortex generates invalid CTE aliases for company queries
 Symptom:
@@ -125,11 +196,11 @@ Fix:
 - keep `streamlit_app.py` as a loader to execute current `app.py`,
 - redeploy both files together when needed.
 
-### Trap 4: Plotly package availability differences in SiS
+### Trap 4: Plotly package availability differences in Streamlit in Snowflake
 Symptom:
 - `ModuleNotFoundError: plotly` in some runtime setups.
 Fix:
-- app currently uses native Streamlit charts in the clean baseline.
+- app uses native Streamlit charts in the clean baseline.
 
 ### Trap 5: Deprecated Snowflake connector warning
 Symptom:
@@ -137,7 +208,7 @@ Symptom:
 Fix:
 - operational note only; does not block app behavior.
 
-## 6) Current fallback intent coverage
+## 7) Current fallback intent coverage
 
 The router currently covers high-frequency failure classes such as:
 - most subsidiaries,
@@ -150,30 +221,100 @@ The router currently covers high-frequency failure classes such as:
 - aerospace production trend,
 - retail growth before vs after 2022 hike cycle.
 
-## 7) Deployment checklist
+## 8) Deployment — Streamlit in Snowflake (Snowsight)
 
-1. Run setup SQL:
-   - `hackathon/economic_indicators_views.sql`
-   - `hackathon/sql/02_economic_indicators_wide.sql`
-   - `hackathon/sql/03_semantic_stage.sql`
-2. Upload semantic model:
+The app is designed to run **inside Snowflake** (Streamlit in Snowflake, often shortened **SiS**). It uses `get_active_session()` and is **not** a local-only Streamlit app without adaptation.
+
+Official overview: [Create your Streamlit app](https://docs.snowflake.com/en/developer-guide/streamlit/getting-started/create-streamlit-ui.html).
+
+### 8.1 One-time data setup (SQL worksheet)
+
+Run as a role that can create objects in `HACKATHON` and read **`SNOWFLAKE_PUBLIC_DATA_FREE`** (or your org’s equivalent Cybersyn listing — see comments in `economic_indicators_views.sql`).
+
+1. `hackathon/economic_indicators_views.sql`
+2. `hackathon/sql/02_economic_indicators_wide.sql` — creates **`ECONOMIC_INDICATORS_WIDE`** for the semantic **`macro_wide`** logical table and multi-indicator questions.
+3. `hackathon/sql/03_semantic_stage.sql`
+
+Upload the semantic model YAML from the repo (path is under **`hackathon/semantic_models/`**, not the repo root). In a worksheet, set **`LOCAL`** to the directory that **contains** the `hackathon` folder (usually your clone root), then run:
 
 ```sql
-PUT file://semantic_model.yaml @HACKATHON.DATA.SEMANTIC_MODELS
+PUT file://hackathon/semantic_models/semantic_model.yaml @HACKATHON.DATA.SEMANTIC_MODELS
   AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
 ```
 
-3. In Streamlit app, deploy `app.py` (or `streamlit_app.py` + `app.py`).
-4. Ensure `requirements.txt` packages are installed in app settings.
-5. Retest core prompts after every semantic-model change.
+Alternatively, use **Data → Stages** in Snowsight and upload `semantic_model.yaml` to `@HACKATHON.DATA.SEMANTIC_MODELS`.
 
-## 8) Notes for ongoing refinement
+Sanity checks:
+
+```sql
+LIST @HACKATHON.DATA.SEMANTIC_MODELS;
+SELECT COUNT(*) FROM HACKATHON.DATA.V_UNEMPLOYMENT;
+SELECT COUNT(*) FROM HACKATHON.DATA.V_CPI;
+SELECT COUNT(*) FROM HACKATHON.DATA.V_GDP;
+SELECT COUNT(*) FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE;
+```
+
+### 8.2 Create the Streamlit app
+
+1. Open **[Snowsight](https://app.snowflake.com)** for your account.
+2. Create a **Streamlit** app (menu names vary by Snowflake release; look for **Streamlit** under **Projects** or **Apps**).
+3. Set **database** and **schema** where the app object should live (for example `HACKATHON.DATA` if your role may **CREATE STREAMLIT** there).
+4. Attach a **warehouse** that stays available while the app runs.
+5. Choose the default **Streamlit in Snowflake** runtime (**Warehouse**-backed) unless your organization requires a different option.
+
+### 8.3 Application files
+
+In the app editor (**Files**):
+
+- **Option A — single entry file:** upload **`streamlit_economic_intelligence/app.py`** and set it as the **main** Python file.
+- **Option B — loader pattern:** upload both **`app.py`** and **`streamlit_app.py`** from `streamlit_economic_intelligence/` into the **same** app folder, set main to **`streamlit_app.py`** (it imports and runs `app.py`). Do **not** leave the default Snowsight template that assumes Plotly unless you intend to change dependencies.
+
+Save, then **Run**.
+
+### 8.4 Python packages
+
+In app **Settings → Packages** (or equivalent), add the same packages as `requirements.txt`, one per line:
+
+```
+streamlit>=1.31.0
+pandas>=2.0.0
+requests>=2.31.0
+snowflake-snowpark-python>=1.11.0
+reportlab>=4.0.0
+```
+
+Charts use native **`st.line_chart`** / **`st.bar_chart`** (no Plotly in the baseline).
+
+### 8.5 Optional environment variables
+
+If your app settings expose **environment variables** or **secrets**:
+
+| Name | Purpose |
+|------|---------|
+| `SEMANTIC_MODEL_FILE` | Override semantic path, e.g. `@HACKATHON.DATA.SEMANTIC_MODELS/semantic_model.yaml` |
+| `CORTEX_COMPLETE_MODEL` | Model name for `COMPLETE` if the default in `app.py` is not enabled in your account |
+
+### 8.6 Troubleshooting
+
+| Symptom | What to check |
+|--------|----------------|
+| No active session / `get_active_session` fails | Run the app from **Streamlit in Snowflake**, not a local `streamlit run`. |
+| Cortex Analyst HTTP errors | Role needs **USAGE** on database/schema, **READ** on the semantic stage, and org policy allowing the Analyst API. |
+| `COMPLETE` errors | Set `CORTEX_COMPLETE_MODEL` to a model enabled for your account. |
+| Permission denied on `HACKATHON` | Grant **USAGE** on database/schema, **SELECT** on views, **READ** on stage. |
+| `ModuleNotFoundError: requests` (or others) | Add missing packages in app settings to match `requirements.txt`. |
+
+### 8.7 Git integration (optional)
+
+If your account has **Git for Streamlit**, connect this repository, set the app root to the folder that contains `app.py`, and set the main file to `streamlit_economic_intelligence/app.py` or `streamlit_economic_intelligence/streamlit_app.py` consistently with §8.3.
+
+## 9) Notes for ongoing refinement
 
 - Prefer semantic-model improvements over adding new hardcoded routes.
 - Add fallback routes only for mission-critical prompts with repeated failures.
 - Track failures and convert repeated ones into semantic verified queries first.
 
-## 9) Operational validation and NL test log
+## 10) Operational validation and NL test log
 
 Use this checklist after creating views, uploading the semantic YAML, and deploying the Streamlit app.
 
@@ -191,8 +332,8 @@ In Analyst or the app, run a short set before demos:
 - **Retail** USD trend since 2020 or top categories in 2023.
 - **Interest** rates in 2022–2023 (Treasury bill monthly pattern).
 - **Industrial production** sector or time trend.
-- **CPI / GDP:** e.g. “peak YoY CPI inflation in 2022” or “real GDP by quarter last five years” (`cpi` / `gdp` logical tables).
-- **Macro wide:** e.g. “Compare unemployment and industrial production since 2020” or “unemployment vs CPI on the same timeline” (`macro_wide` / `ECONOMIC_INDICATORS_WIDE`).
+- **Consumer Price Index / Gross Domestic Product:** e.g. “peak YoY headline **Consumer Price Index** inflation in 2022” or “**Gross Domestic Product** by quarter last five years” (`cpi` / `gdp` logical tables).
+- **Macro wide:** e.g. “Compare unemployment and industrial production since 2020” or “unemployment vs **Consumer Price Index** on the same timeline” (`macro_wide` / `ECONOMIC_INDICATORS_WIDE`).
 - **Company graph:** top parents by subsidiary count or one named parent’s subsidiaries.
 
 ### Full rubric log
@@ -202,4 +343,3 @@ Documented questions with expected **pass** / **partial** / **fail** and schema 
 ### Modeling narrative
 
 See `hackathon/notebooks/Economic_Modeling_Decisions.ipynb` for why the model uses five logical tables, how joins are scoped, and how iteration (YAML vs Streamlit fallbacks) works.
-
