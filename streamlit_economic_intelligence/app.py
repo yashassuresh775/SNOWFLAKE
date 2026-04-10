@@ -161,23 +161,32 @@ def run_sql(sql: str) -> pd.DataFrame:
 def generate_narrative(question: str, df: pd.DataFrame) -> str:
     if df.empty or "Error" in df.columns or session is None:
         return ""
-    summary = df.head(5).to_string(index=False)
-    prompt = f"""You are a senior economic analyst.
+    # Format top results for the prompt
+    summary = df.head(8).to_string(index=False)
+    prompt = f"""You are a senior business intelligence analyst presenting findings to an executive.
+
 A user asked: "{question}"
-The data result is:
+
+The data shows:
 {summary}
 
-Write a concise 2-3 sentence executive summary of this data.
-Be specific — mention actual numbers.
-Do not use bullet points. Plain prose only."""
-    tag = f"N_{uuid.uuid4().hex[:10]}"
+Write 2-3 sentences summarizing the key insight from this data.
+Be specific — mention the top result and actual numbers.
+Start directly with the insight, not with "The data shows" or "Based on the results".
+Plain prose only, no bullet points."""
+
     try:
-        q = (
-            f"SELECT SNOWFLAKE.CORTEX.COMPLETE('{CORTEX_COMPLETE_MODEL}', ${tag}${prompt}${tag}$) AS narrative"
-        )
-        row = session.sql(q).collect()[0]
-        return str(row[0]).strip() if row[0] is not None else ""
-    except Exception:  # noqa: BLE001
+        # Use dollar-quoted string to avoid escaping issues
+        result = session.sql(
+            "SELECT SNOWFLAKE.CORTEX.COMPLETE('"
+            + CORTEX_COMPLETE_MODEL
+            + "', $$"
+            + prompt
+            + "$$) AS narrative"
+        ).collect()[0]["NARRATIVE"]
+        return result.strip() if result else ""
+    except Exception as e:  # noqa: BLE001
+        st.sidebar.write(f"Narrative error: {e}")
         return ""
 
 
