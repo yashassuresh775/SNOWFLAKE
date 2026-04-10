@@ -19,6 +19,7 @@ from typing import Any
 import pandas as pd
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 # ── session ─────────────────────────────────────────────────────────────────
 try:
@@ -471,7 +472,17 @@ def _assistant_reply_when_no_narrative(
 ) -> str:
     """Sensible chat line when Cortex COMPLETE and Analyst text are empty but rows returned."""
     if df is None or df.empty or "Error" in df.columns:
-        return "Here are the results — see the chart and data."
+        t0 = _normalize_question(question)
+        if _has_any(t0, ("cpi", "consumer price", "headline cpi", "inflation")) and "gdp" not in t0:
+            return (
+                "**No CPI rows** were returned (SQL error or empty result). The app will use **verified V_CPI** SQL when Analyst "
+                "SQL fails or returns zero rows — try **Run analysis** again. If it still fails, confirm "
+                "`HACKATHON.DATA.V_CPI` is deployed and populated (see `hackathon/economic_indicators_views.sql`)."
+            )
+        return (
+            "**No data** for that query (empty result or SQL error), so there is nothing to chart yet. "
+            "Check **Technical → SQL** for the statement, or rephrase with a clearer metric and date range."
+        )
     t = _normalize_question(question)
     cols_joined = " ".join(str(c).lower() for c in df.columns)
 
@@ -558,7 +569,9 @@ def _assistant_reply_when_no_narrative(
     if query_class == "TIME_SERIES":
         return "Your **time series** is charted above; row-level values are in **Data** and the query under **Technical**."
 
-    return "Here are the results — see the chart and data."
+    return (
+        "Results are in the **Data** panel and chart when the shape supports it; use **Technical → SQL** for the exact query."
+    )
 
 
 def ambiguity_warnings(question: str) -> list[str]:
@@ -636,7 +649,7 @@ def _infer_chart_plan(df: pd.DataFrame, question: str) -> tuple[str, str]:
         ),
         None,
     )
-    num_cols = list(df.select_dtypes(include="number").columns)
+    num_cols = _chart_numeric_columns(df)
     qn = _normalize_question(question)
     if date_col and num_cols:
         n = len(df.dropna(subset=[date_col]))
@@ -1050,8 +1063,8 @@ div[data-testid="stTabs"] [role="tablist"] button[aria-selected="true"] {
 form[data-testid="stForm"] {
     border: 1px solid rgba(167, 139, 250, 0.28) !important;
     border-radius: 16px !important;
-    padding: 14px 16px 14px 16px !important;
-    margin: 0 0 8px 0 !important;
+    padding: 18px 18px 18px 18px !important;
+    margin: 0 0 14px 0 !important;
     background: linear-gradient(165deg, rgba(30, 27, 75, 0.28), rgba(15, 23, 42, 0.45)) !important;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
 }
@@ -1092,8 +1105,8 @@ form[data-testid="stForm"] div[data-testid="stTextInput"] [data-baseweb="input"]
     box-shadow: none !important;
 }
 form[data-testid="stForm"] div[data-testid="stTextInput"] input {
-    min-height: 58px !important;
-    font-size: 18px !important;
+    min-height: 68px !important;
+    font-size: 19px !important;
     line-height: 1.4 !important;
     border: 1px solid var(--dm-border2) !important;
     border-radius: 11px !important;
@@ -1108,11 +1121,11 @@ form[data-testid="stForm"] [data-testid="stFormSubmitButton"] button,
 form[data-testid="stForm"] button[kind="primary"] {
     white-space: nowrap !important;
     width: 100% !important;
-    min-height: 58px !important;
+    min-height: 68px !important;
     height: 100% !important;
     border-radius: 12px !important;
     font-weight: 700 !important;
-    font-size: 1.05rem !important;
+    font-size: 1.12rem !important;
     letter-spacing: 0.03em !important;
     padding: 0 1.25rem !important;
     line-height: 1.2 !important;
@@ -1770,12 +1783,77 @@ div[data-testid="stDataFrame"] {
     line-height: 1.2;
 }
 .ei-ask-sub {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 500;
     color: var(--dm-muted);
-    margin: 0 0 14px 0;
+    margin: 0 0 16px 0;
+    line-height: 1.5;
+    max-width: 52rem;
+}
+/* Dashboard conversation — always visible, large */
+.ei-thread-anchor {
+    scroll-margin-top: 88px;
+}
+.ei-results-anchor {
+    scroll-margin-top: 88px;
+}
+.ei-thread-shell {
+    border: 1px solid rgba(167, 139, 250, 0.22);
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(30, 27, 75, 0.2), rgba(15, 23, 42, 0.35));
+    padding: 14px 16px 14px 16px;
+    margin: 0 0 10px 0;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.ei-thread-head {
+    font-size: clamp(17px, 1.6vw, 20px);
+    font-weight: 800;
+    color: var(--dm-ice);
+    letter-spacing: -0.02em;
+    margin: 0 0 4px 0;
+}
+.ei-thread-sub {
+    font-size: 13px;
+    color: var(--dm-muted);
+    margin: 0 0 12px 0;
     line-height: 1.45;
-    max-width: 48rem;
+}
+.ei-bubble-enter {
+    animation: ei-card-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.ei-flash-once {
+    animation: ei-anchor-pulse 0.9s ease-out 1;
+}
+@keyframes ei-anchor-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(41, 181, 232, 0.55); }
+    100% { box-shadow: 0 0 0 12px rgba(41, 181, 232, 0); }
+}
+.user-bubble.ei-dash-bubble,
+.ai-bubble.ei-dash-bubble {
+    font-size: 16px !important;
+    line-height: 1.55 !important;
+    padding: 16px 18px !important;
+    margin: 12px 0 !important;
+    max-width: 96% !important;
+}
+.ei-followups-hero {
+    margin: 14px 0 18px 0;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(41, 181, 232, 0.28);
+    background: rgba(41, 181, 232, 0.06);
+}
+.ei-followups-hero-title {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--dm-sky);
+    margin: 0 0 10px 0;
+}
+@media (prefers-reduced-motion: reduce) {
+    .ei-bubble-enter { animation: none !important; }
+    .ei-flash-once { animation: none !important; }
 }
 .ei-example-section-label {
     font-size: 12px;
@@ -1789,9 +1867,9 @@ div[data-testid="stDataFrame"] {
 }
 /* Main area: larger secondary buttons (example picks, follow-ups, starter chips) */
 section.main div[data-testid="stButton"] button:not([kind="primary"]) {
-    min-height: 52px !important;
-    padding: 12px 14px !important;
-    font-size: 15px !important;
+    min-height: 56px !important;
+    padding: 14px 16px !important;
+    font-size: 16px !important;
     font-weight: 500 !important;
     line-height: 1.35 !important;
     white-space: normal !important;
@@ -1959,6 +2037,32 @@ def run_sql(sql: str) -> pd.DataFrame:
         return pd.DataFrame({"Error": [str(e)]})
 
 
+def _chart_numeric_columns(df: pd.DataFrame) -> list[str]:
+    """Numeric dtypes plus object/string columns that are mostly parseable as numbers (e.g. Snowflake DECIMAL → object)."""
+    if df.empty or "Error" in df.columns:
+        return []
+    out: list[str] = []
+    for c in df.columns:
+        if str(c) == "Error":
+            continue
+        s = df[c]
+        if pd.api.types.is_bool_dtype(s):
+            continue
+        if pd.api.types.is_numeric_dtype(s):
+            out.append(c)
+            continue
+        coerced = pd.to_numeric(s, errors="coerce")
+        nn = int(coerced.notna().sum())
+        if nn < 2:
+            continue
+        raw_nn = int(s.notna().sum())
+        if raw_nn == 0:
+            continue
+        if nn / raw_nn >= 0.85:
+            out.append(c)
+    return out
+
+
 def _time_series_cols(df: pd.DataFrame) -> tuple[str | None, str | None]:
     if df.empty or "Error" in df.columns:
         return None, None
@@ -1972,7 +2076,7 @@ def _time_series_cols(df: pd.DataFrame) -> tuple[str | None, str | None]:
         ),
         None,
     )
-    num_cols = [c for c in df.select_dtypes(include="number").columns if c != date_col]
+    num_cols = [c for c in _chart_numeric_columns(df) if c != date_col]
     if date_col and num_cols:
         return date_col, num_cols[0]
     return None, None
@@ -2153,7 +2257,7 @@ def render_chart(df: pd.DataFrame, question: str = "") -> None:
         ),
         None,
     )
-    num_cols = list(df.select_dtypes(include="number").columns)
+    num_cols = _chart_numeric_columns(df)
     if len(df.columns) < 2 or kind == "table":
         st.dataframe(df, use_container_width=True)
         return
@@ -2165,6 +2269,9 @@ def render_chart(df: pd.DataFrame, question: str = "") -> None:
         try:
             plot_df = df[[date_col] + num_cols].copy()
             plot_df[date_col] = pd.to_datetime(plot_df[date_col], errors="coerce")
+            for _nc in num_cols:
+                if not pd.api.types.is_numeric_dtype(plot_df[_nc]):
+                    plot_df[_nc] = pd.to_numeric(plot_df[_nc], errors="coerce")
             plot_df = plot_df.sort_values(date_col).set_index(date_col)
             if kind == "area":
                 st.area_chart(plot_df, use_container_width=True)
@@ -2226,6 +2333,9 @@ def render_chart(df: pd.DataFrame, question: str = "") -> None:
         try:
             plot_df = df[[date_col] + num_cols].copy()
             plot_df[date_col] = pd.to_datetime(plot_df[date_col], errors="coerce")
+            for _nc in num_cols:
+                if not pd.api.types.is_numeric_dtype(plot_df[_nc]):
+                    plot_df[_nc] = pd.to_numeric(plot_df[_nc], errors="coerce")
             plot_df = plot_df.sort_values(date_col).set_index(date_col)
             st.line_chart(plot_df, use_container_width=True)
             return
@@ -2327,22 +2437,61 @@ def _glass_panel():
     return st.container()
 
 
-def _render_session_chat_bubbles(*, empty_hint: str, bubbles_off_intro: str) -> None:
+def _emit_dashboard_scroll(target_id: str) -> None:
+    """Scroll the host page to a dashboard anchor (Streamlit runs inside an iframe)."""
+    sid = json.dumps(target_id)
+    components.html(
+        f"""
+        <script>
+        (function() {{
+          try {{
+            const doc = window.parent.document;
+            const el = doc.getElementById({sid});
+            if (!el) return;
+            const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            el.scrollIntoView({{ behavior: reduce ? "auto" : "smooth", block: "start" }});
+            el.classList.add("ei-flash-once");
+            setTimeout(function() {{
+              try {{ el.classList.remove("ei-flash-once"); }} catch (e) {{}}
+            }}, 1100);
+          }} catch (e) {{}}
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def _consume_dashboard_scroll_if_any() -> None:
+    tid = st.session_state.pop("ei_scroll_target", None)
+    if tid in ("ei-thread-anchor", "ei-results-anchor"):
+        _emit_dashboard_scroll(tid)
+
+
+def _render_session_chat_bubbles(
+    *,
+    empty_hint: str,
+    bubbles_off_intro: str,
+    dashboard_thread: bool = False,
+) -> None:
     msgs = st.session_state.get("messages") or []
     if not msgs:
         st.caption(empty_hint)
         return
     if st.session_state.get("ei_show_bubbles", True):
-        for msg in msgs:
+        n = len(msgs)
+        dash = " ei-dash-bubble" if dashboard_thread else ""
+        for i, msg in enumerate(msgs):
+            anim = " ei-bubble-enter" if dashboard_thread and i >= n - 2 else ""
             if msg["role"] == "user":
                 st.markdown(
-                    f'<div class="user-bubble">{html.escape(msg["content"])}</div>'
+                    f'<div class="user-bubble{dash}{anim}">{html.escape(msg["content"])}</div>'
                     '<div class="clearfix"></div>',
                     unsafe_allow_html=True,
                 )
             else:
                 st.markdown(
-                    f'<div class="ai-bubble">{html.escape(msg["content"])}</div>'
+                    f'<div class="ai-bubble{dash}{anim}">{html.escape(msg["content"])}</div>'
                     '<div class="clearfix"></div>',
                     unsafe_allow_html=True,
                 )
@@ -2363,11 +2512,12 @@ def _render_chat_history_page() -> None:
         st.caption(
             "Full session thread (same data as **Dashboard**). Download the transcript from the **sidebar**."
         )
-        chat_container = st.container(height=520)
+        chat_container = st.container(height=620)
         with chat_container:
             _render_session_chat_bubbles(
                 empty_hint="No messages yet — go to **Dashboard** and ask a question.",
                 bubbles_off_intro="Bubbles off (sidebar) — plain text:",
+                dashboard_thread=True,
             )
 
 
@@ -2420,14 +2570,6 @@ def _render_dashboard_layout() -> tuple[bool, str]:
                 "unemployment, CPI, GDP, rates, and multi-metric compares all render as <strong>line charts</strong> when the result is a time series.</div>",
                 unsafe_allow_html=True,
             )
-            with st.expander("Conversation thread", expanded=False):
-                chat_container = st.container(height=200)
-                with chat_container:
-                    _render_session_chat_bubbles(
-                        empty_hint="Messages appear here after you ask.",
-                        bubbles_off_intro="Bubbles hidden — see **Sidebar → Full chat transcript**:",
-                    )
-
             with st.form("chat_form", clear_on_submit=True):
                 _qrow1, _qrow2 = st.columns([7, 3], gap="small")
                 with _qrow1:
@@ -2444,7 +2586,26 @@ def _render_dashboard_layout() -> tuple[bool, str]:
                         type="primary",
                     )
 
+            st.markdown(
+                '<div id="ei-thread-anchor" class="ei-thread-anchor ei-thread-shell">'
+                '<div class="ei-thread-head">Conversation thread</div>'
+                '<div class="ei-thread-sub">Your question and the analyst reply show up here after each run — '
+                "scroll inside the box if the exchange is long.</div></div>",
+                unsafe_allow_html=True,
+            )
+            thread_container = st.container(height=440)
+            with thread_container:
+                _render_session_chat_bubbles(
+                    empty_hint="Run **Run analysis** above — the conversation appears here.",
+                    bubbles_off_intro="Bubbles hidden (sidebar) — plain lines below:",
+                    dashboard_thread=True,
+                )
+
             if st.session_state.last_df is not None:
+                st.markdown(
+                    '<div id="ei-results-anchor" class="ei-results-anchor"></div>',
+                    unsafe_allow_html=True,
+                )
                 _ldf = st.session_state.last_df
                 _dc, _vc = _time_series_cols(_ldf)
                 if _dc and _vc:
@@ -2454,6 +2615,18 @@ def _render_dashboard_layout() -> tuple[bool, str]:
                             st.markdown(_ci)
                 with st.container(height=220):
                     render_chart(_ldf, st.session_state.get("last_user_question") or "")
+                if st.session_state.last_followups:
+                    st.markdown(
+                        '<div class="ei-followups-hero">'
+                        '<div class="ei-followups-hero-title">Suggested next questions</div></div>',
+                        unsafe_allow_html=True,
+                    )
+                    _fu_cols = st.columns(2)
+                    for _fi, _fq in enumerate(st.session_state.last_followups):
+                        with _fu_cols[_fi % 2]:
+                            if st.button(_fq, key=f"fu_center_{_fi}", use_container_width=True):
+                                st.session_state.pending_question = _fq
+                                st.rerun()
                 _tbl_col, _tab_col = st.columns([1, 1], gap="small")
                 with _tbl_col:
                     st.markdown(
@@ -2515,6 +2688,8 @@ def _render_dashboard_layout() -> tuple[bool, str]:
                     unsafe_allow_html=True,
                 )
 
+            _consume_dashboard_scroll_if_any()
+
     with _right_col:
         with _glass_panel():
             _rail_bits: list[str] = [
@@ -2545,7 +2720,10 @@ def _render_dashboard_layout() -> tuple[bool, str]:
                 st.caption("No narrative this turn — see **Conversation thread**.")
             else:
                 st.caption("Interpretation appears after you run an analysis.")
-            with st.expander("Suggested follow-ups", expanded=False):
+            with st.expander(
+                "Suggested follow-ups",
+                expanded=bool(st.session_state.last_followups),
+            ):
                 if st.session_state.last_followups:
                     for i, fq in enumerate(st.session_state.last_followups):
                         if st.button(fq, key=f"fu_rail_{i}", use_container_width=True):
@@ -2730,12 +2908,23 @@ if question:
                 if sql:
                     _progress_step("Running generated SQL in your Snowflake warehouse…")
                     df = run_sql(sql)
-                    if "Error" in df.columns:
-                        fallback_sql = _fallback_sql_for_question(question)
-                        if fallback_sql:
+                    fb_sql = _fallback_sql_for_question(question)
+                    analyst_bad = "Error" in df.columns or df.empty
+                    if analyst_bad and fb_sql:
+                        if "Error" in df.columns:
                             _progress_step("Analyst SQL had an error — running a verified fallback query…")
-                            df = run_sql(fallback_sql)
-                            sql = fallback_sql + "\n\n-- Note: Cortex Analyst SQL failed; ran verified fallback query."
+                        else:
+                            _progress_step("Analyst SQL returned no rows — running a verified fallback query…")
+                        df_fb = run_sql(fb_sql)
+                        if "Error" not in df_fb.columns and not df_fb.empty:
+                            df = df_fb
+                            sql = (
+                                fb_sql
+                                + "\n\n-- Note: Cortex Analyst SQL failed or returned no rows; ran verified fallback query."
+                            )
+                        elif "Error" in df.columns:
+                            df = df_fb
+                            sql = fb_sql + "\n\n-- Note: Cortex Analyst SQL failed; ran verified fallback query."
                     st.session_state.last_sql = sql
                     st.session_state.last_df = df
                     _progress_step("Drafting an executive summary with Cortex COMPLETE…")
@@ -2837,4 +3026,8 @@ if question:
             st.session_state.last_followups = []
             query_progress.empty()
 
+    if st.session_state.get("last_df") is not None:
+        st.session_state.ei_scroll_target = "ei-results-anchor"
+    else:
+        st.session_state.ei_scroll_target = "ei-thread-anchor"
     st.rerun()
