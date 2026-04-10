@@ -379,6 +379,135 @@ DOMAIN_TERMS = [
 ]
 
 
+def classify_query(question: str) -> tuple[str, str]:
+    """Return (code, short description) for UI badge."""
+    t = _normalize_question(question)
+    if not t:
+        return "UNKNOWN", "Empty or unclear question"
+    if _wants_subsidiary_leaderboard(t) or "subsidiar" in t:
+        return "COMPANY_GRAPH", "Corporate parent → subsidiary relationships"
+    if "compare" in t and _has_any(
+        t, ("unemployment", "cpi", "inflation", "retail", "industrial", "production", "gdp")
+    ):
+        return "MULTI_METRIC", "Compare multiple indicators over time"
+    if re.search(r"\b(top|highest|largest|biggest|rank)\b", t) or re.search(r"\bmost\b", t):
+        return "RANKING", "Ranking or top-N by a measure"
+    if re.search(r"\b(peak|maximum|max|minimum|min|trough)\b", t):
+        return "EXTREMA", "Peak, trough, or extreme value"
+    if _has_any(t, ("trend", "over time", "since", "timeline", "monthly", "quarter")):
+        return "TIME_SERIES", "Trend or level over time"
+    if _has_any(t, ("cpi", "inflation", "gdp", "consumer price")):
+        return "PRICES_OUTPUT", "Prices, inflation, or GDP"
+    if "rate" in t or "treasury" in t or "interest" in t:
+        return "RATES", "Interest or Treasury rates"
+    if "retail" in t:
+        return "RETAIL", "Retail sales"
+    return "ANALYTICAL", "General analytical question"
+
+
+def ambiguity_warnings(question: str) -> list[str]:
+    """Heuristic ambiguity flags for NL analytics."""
+    t = _normalize_question(question)
+    warns: list[str] = []
+    if len(t.split()) < 4 and len(t) > 0:
+        warns.append("Very short question — consider naming the metric and time range (e.g. “US unemployment 2020–2024”).")
+    if "rate" in t or "rates" in t:
+        if "treasury" not in t and "interest" not in t and "fed" not in t and "unemployment" not in t:
+            warns.append(
+                "“Rates” could mean Treasury yields, policy rates, or something else — specify if results look off."
+            )
+    if "sales" in t and "retail" not in t and "industrial" not in t:
+        warns.append("“Sales” may mean retail, wholesale, or sector-specific series — add context if needed.")
+    if t.count(" and ") >= 2 and "compare" not in t:
+        warns.append("Multiple “and” clauses can be interpreted as one combined query — use **Compare …** for two metrics on one timeline.")
+    if "inflation" in t and "cpi" not in t and "price" not in t:
+        warns.append("Headline inflation is usually CPI in this model — say **CPI** if you want the verified CPI view.")
+    return warns
+
+
+def heuristic_followups(question: str, df: pd.DataFrame, qclass: str) -> list[str]:
+    """Rule-based follow-ups when LLM suggestions are thin or fail."""
+    if df is None or df.empty or "Error" in df.columns:
+        return []
+    t = _normalize_question(question)
+    out: list[str] = []
+    if qclass != "MULTI_METRIC" and "unemployment" in t and "cpi" not in t:
+        out.append("Compare unemployment and CPI on the same monthly timeline since 2020.")
+    if qclass != "MULTI_METRIC" and "cpi" in t and "unemployment" not in t:
+        out.append("Compare unemployment and headline CPI since 2020 on one chart.")
+    if "2023" in t and "2024" not in t and "trend" not in t:
+        out.append("How does the same metric look if we extend the window through 2024?")
+    if qclass == "RANKING":
+        out.append("Show the same ranking for a different year or limit to top 5.")
+    if qclass == "COMPANY_GRAPH" and "kroger" not in t and "marriott" not in t:
+        out.append("What subsidiaries does Kroger own?")
+    out.append("Show monthly headline CPI index from 2019 through 2024.")
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for s in out:
+        k = s.lower()
+        if k not in seen:
+            seen.add(k)
+            deduped.append(s)
+    return deduped[:5]
+
+
+def merge_followup_lists(primary: list[str], extra: list[str], limit: int = 5) -> list[str]:
+    seen: set[str] = set()
+    merged: list[str] = []
+    for s in primary + extra:
+        k = s.strip().lower()
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        merged.append(s.strip())
+        if len(merged) >= limit:
+            break
+    return merged
+
+
+def _infer_chart_plan(df: pd.DataFrame, question: str) -> tuple[str, str]:
+    """Choose chart type and a one-line reason (auto selection)."""
+    if df.empty or "Error" in df.columns or len(df.columns) < 2:
+        return "table", "Table view — not enough structure for a chart."
+    cols = df.columns.tolist()
+    date_col = next(
+        (
+            c
+            for c in cols
+            if "date" in c.lower()
+            or c.lower() in ("month", "observation_date", "observation_month")
+        ),
+        None,
+    )
+    num_cols = list(df.select_dtypes(include="number").columns)
+    qn = _normalize_question(question)
+    if date_col and num_cols:
+        n = len(df.dropna(subset=[date_col]))
+        if len(num_cols) == 1 and n <= 36:
+            return "area", "Area chart — compact time series (emphasizes level)."
+        return (
+            "line",
+            "Line chart — time series"
+            + (" with multiple metrics" if len(num_cols) > 1 else "."),
+        )
+    cat_cols = [c for c in cols if c not in num_cols]
+    if cat_cols and len(num_cols) == 1:
+        try:
+            nu = int(df[cat_cols[0]].nunique(dropna=True))
+        except Exception:  # noqa: BLE001
+            nu = 0
+        if nu > 1:
+            prefer_bar = _has_any(qn, ("top", "highest", "largest", "rank", "sector", "category", "company"))
+            label = f"Bar chart — {nu} categories vs one measure."
+            if prefer_bar:
+                label += " (fits ranking-style questions.)"
+            return "bar", label
+    if len(num_cols) >= 2 and not date_col:
+        return "scatter", "Scatter chart — relationship between two numeric columns."
+    return "table", "Table view — safest for this result shape."
+
+
 def _autocorrect_question(question: str) -> str:
     parts = question.split()
     out: list[str] = []
@@ -427,7 +556,7 @@ Question: {question}
 Result sample:
 {preview}
 
-Suggest exactly 3 concise follow-up questions the user may ask next.
+Suggest exactly 5 concise follow-up questions the user may ask next (diverse, specific to the data).
 Return only JSON array of strings."""
     try:
         raw = session.sql(
@@ -441,7 +570,7 @@ Return only JSON array of strings."""
             return []
         parsed = json.loads(str(raw).strip())
         if isinstance(parsed, list):
-            return [str(x).strip() for x in parsed if str(x).strip()][:3]
+            return [str(x).strip() for x in parsed if str(x).strip()][:5]
     except Exception:  # noqa: BLE001
         return []
     return []
@@ -523,7 +652,7 @@ def _render_welcome_back_strip() -> None:
     st.markdown(
         """
 <div class="welcome-back-strip">
-  <strong>Welcome back.</strong> Your latest analysis is in the <strong>Analysis</strong> column — keep the conversation going.
+  <strong>Welcome back.</strong> Latest results are in the <strong>Analysis workspace</strong> (left) — ask again from the panel on the right.
 </div>
 """,
         unsafe_allow_html=True,
@@ -535,198 +664,267 @@ st.set_page_config(
     page_title="US Economic Intelligence",
     page_icon="📊",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 st.markdown(
     """
 
+
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-/* Snowflake brand: Sky #29B5E8, Mid blue #11567F — layout inspired by Claude (warm stone, flat cards, split pane) */
+/* Dark mode — deep slate + Snowflake sky (#29B5E8) / ice accents */
 :root {
-    --sf-sky: #29B5E8;
-    --sf-sky-dim: #1fa0d4;
-    --sf-mid: #11567F;
-    --sf-mid-dark: #0c4a63;
-    --sf-bg: #fafaf9;
-    --sf-bg-warm: #f5f5f4;
-    --sf-surface: #ffffff;
-    --sf-border: #e7e5e4;
-    --sf-border-strong: #d6d3d1;
-    --sf-text: #1c1917;
-    --sf-muted: #78716c;
-    --sf-muted2: #57534e;
-    --ei-accent: var(--sf-mid);
-    --ei-teal: var(--sf-sky);
-    --ei-muted: var(--sf-muted);
-    --ei-shadow: 0 1px 2px rgba(28, 25, 23, 0.04);
-    --ei-shadow-md: 0 4px 24px rgba(17, 86, 127, 0.07);
-    --ei-shadow-hover: 0 8px 32px rgba(17, 86, 127, 0.1);
+    --dm-bg: #070a0e;
+    --dm-bg-mid: #0c1018;
+    --dm-surface: #121a24;
+    --dm-surface2: #182230;
+    --dm-surface3: #1e2a3d;
+    --dm-border: #2a3548;
+    --dm-border2: #36445c;
+    --dm-text: #e8f0fa;
+    --dm-muted: #94a8bc;
+    --dm-muted2: #6b7f95;
+    --dm-sky: #29B5E8;
+    --dm-sky-bright: #5dd4ff;
+    --dm-sky-dim: #1e8eb8;
+    --dm-ice: #a5d8ff;
+    --dm-glow: rgba(41, 181, 232, 0.22);
+    --dm-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+    --dm-shadow-inset: inset 0 1px 0 rgba(255,255,255,0.04);
 }
 html, body, [class*="css"] {
-    font-family: "Inter", "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif !important;
+    font-family: "Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif !important;
+    color-scheme: dark;
 }
 .stApp {
-    background: var(--sf-bg) !important;
-    background-image: radial-gradient(900px 420px at 12% -8%, rgba(41, 181, 232, 0.07), transparent 55%),
-                      radial-gradient(700px 380px at 96% 4%, rgba(17, 86, 127, 0.06), transparent 50%) !important;
+    background: var(--dm-bg) !important;
+    background-image:
+        radial-gradient(ellipse 120% 80% at 50% -30%, rgba(41, 181, 232, 0.14), transparent 55%),
+        radial-gradient(ellipse 60% 40% at 100% 20%, rgba(30, 80, 120, 0.2), transparent 50%),
+        linear-gradient(180deg, var(--dm-bg-mid) 0%, var(--dm-bg) 55%) !important;
     background-attachment: fixed !important;
+    color: var(--dm-text) !important;
 }
-/* Claude-style centered reading column */
-section.main > div {
-    max-width: 1080px;
-    margin-left: auto;
-    margin-right: auto;
-    padding-left: 1.5rem;
-    padding-right: 1.5rem;
+[data-testid="stAppViewContainer"], [data-testid="stHeader"], section.main {
+    background-color: transparent !important;
 }
+section.main > div.block-container {
+    max-width: min(1480px, 100%) !important;
+    padding: 1rem 1.75rem 2.5rem 1.75rem !important;
+}
+/* Sidebar */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, var(--dm-surface) 0%, var(--dm-bg-mid) 100%) !important;
+    border-right: 1px solid var(--dm-border) !important;
+}
+[data-testid="stSidebar"] [data-testid="stMarkdown"] p,
+[data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] label {
+    color: var(--dm-muted) !important;
+}
+[data-testid="stSidebar"] h3, [data-testid="stSidebar"] h2 {
+    color: var(--dm-text) !important;
+}
+/* Header bar */
+[data-testid="stHeader"] {
+    background: rgba(7, 10, 14, 0.85) !important;
+    backdrop-filter: blur(12px) !important;
+    border-bottom: 1px solid var(--dm-border) !important;
+}
+/* Main chrome */
 .ei-app-header {
-    margin-bottom: 20px;
-    padding: 20px 24px 22px 24px;
-    border-radius: 16px;
-    background: var(--sf-surface);
-    border: 1px solid var(--sf-border);
-    box-shadow: var(--ei-shadow-md);
+    margin-bottom: 1.25rem;
+    padding: 1.35rem 1.5rem 1.25rem 1.5rem;
+    border-radius: 14px;
+    background: linear-gradient(145deg, var(--dm-surface2) 0%, var(--dm-surface) 100%);
+    border: 1px solid var(--dm-border);
+    box-shadow: var(--dm-shadow), var(--dm-shadow-inset);
     position: relative;
+    overflow: hidden;
 }
 .ei-app-header::before {
     content: "";
     position: absolute;
     top: 0; left: 0; right: 0;
-    height: 3px;
-    border-radius: 16px 16px 0 0;
-    background: linear-gradient(90deg, var(--sf-mid), var(--sf-sky));
-    opacity: 1;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--dm-sky), var(--dm-sky-bright), transparent);
+    opacity: 0.95;
 }
 .ei-app-header-inner { position: relative; z-index: 1; }
 .sf-marketing-strip {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.11em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: var(--sf-sky);
-    margin-bottom: 8px;
+    color: var(--dm-sky);
+    margin-bottom: 6px;
 }
 .main-header {
-    font-size: 26px;
-    font-weight: 700;
-    margin-bottom: 8px;
+    font-size: 1.65rem;
+    font-weight: 800;
+    margin-bottom: 6px;
     letter-spacing: -0.03em;
-    color: var(--sf-text);
-    line-height: 1.25;
+    color: var(--dm-text);
+    line-height: 1.2;
 }
 .sub-header {
-    font-size: 15px;
-    color: var(--sf-muted2);
-    margin-bottom: 0;
+    font-size: 0.95rem;
+    color: var(--dm-muted);
     line-height: 1.55;
-    max-width: 680px;
+    max-width: 52rem;
     font-weight: 400;
 }
-/* Workspace split: Claude-like artifact panels */
+.sub-header strong {
+    color: var(--dm-ice);
+    font-weight: 600;
+}
+/* Glass / bordered panels */
 div[data-testid="stVerticalBlockBorderWrapper"] {
-    background: var(--sf-surface) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    border-radius: 16px !important;
-    border: 1px solid var(--sf-border) !important;
-    box-shadow: var(--ei-shadow) !important;
+    background: var(--dm-surface) !important;
+    border-radius: 14px !important;
+    border: 1px solid var(--dm-border) !important;
+    box-shadow: var(--dm-shadow), var(--dm-shadow-inset) !important;
     margin-bottom: 1rem !important;
-    padding: 10px 12px 14px 12px !important;
-    transition: box-shadow 0.25s ease, border-color 0.25s ease !important;
+    padding: 14px 16px 18px 16px !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
 }
 div[data-testid="stVerticalBlockBorderWrapper"]:hover {
-    box-shadow: var(--ei-shadow-md) !important;
-    border-color: var(--sf-border-strong) !important;
+    border-color: var(--dm-border2) !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px var(--dm-glow) !important;
 }
+/* Metrics */
 div[data-testid="stMetric"] {
-    background: var(--sf-bg-warm) !important;
+    background: var(--dm-surface2) !important;
     border-radius: 12px !important;
-    border: 1px solid var(--sf-border) !important;
+    border: 1px solid var(--dm-border) !important;
     padding: 12px 14px !important;
-    box-shadow: none !important;
-    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease !important;
+    box-shadow: var(--dm-shadow-inset) !important;
+    transition: transform 0.2s ease, border-color 0.2s ease !important;
 }
 div[data-testid="stMetric"]:hover {
     transform: translateY(-2px);
-    box-shadow: var(--ei-shadow-md) !important;
     border-color: rgba(41, 181, 232, 0.35) !important;
 }
 div[data-testid="stMetric"] label {
-    color: var(--sf-muted) !important;
+    color: var(--dm-muted2) !important;
     font-weight: 600 !important;
-    font-size: 11px !important;
-    letter-spacing: 0.04em !important;
+    font-size: 10px !important;
+    letter-spacing: 0.06em !important;
     text-transform: uppercase !important;
 }
 div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-    color: var(--sf-mid) !important;
+    color: var(--dm-sky-bright) !important;
     font-weight: 700 !important;
 }
+/* Buttons */
 button[kind="primary"] {
-    background: var(--sf-sky) !important;
-    color: #ffffff !important;
+    background: linear-gradient(180deg, var(--dm-sky) 0%, var(--dm-sky-dim) 100%) !important;
+    color: #061018 !important;
     border: none !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.01em !important;
+    font-weight: 700 !important;
     border-radius: 10px !important;
-    box-shadow: 0 2px 12px rgba(41, 181, 232, 0.35) !important;
-    transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease !important;
+    box-shadow: 0 0 20px var(--dm-glow) !important;
+    transition: transform 0.15s ease, filter 0.2s ease !important;
 }
 button[kind="primary"]:hover {
     transform: translateY(-1px);
-    background: var(--sf-sky-dim) !important;
-    box-shadow: 0 4px 18px rgba(41, 181, 232, 0.4) !important;
+    filter: brightness(1.08);
 }
 div[data-testid="stButton"] button:not([kind="primary"]) {
     border-radius: 10px !important;
-    border: 1px solid var(--sf-border-strong) !important;
-    background: var(--sf-surface) !important;
+    border: 1px solid var(--dm-border2) !important;
+    background: var(--dm-surface2) !important;
+    color: var(--dm-text) !important;
     font-weight: 500 !important;
-    color: var(--sf-text) !important;
-    transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease !important;
+    transition: border-color 0.2s ease, background 0.2s ease !important;
 }
 div[data-testid="stButton"] button:not([kind="primary"]):hover {
-    transform: translateY(-1px);
-    box-shadow: var(--ei-shadow-md) !important;
-    border-color: rgba(41, 181, 232, 0.45) !important;
-    background: var(--sf-bg) !important;
+    border-color: var(--dm-sky-dim) !important;
+    background: var(--dm-surface3) !important;
+}
+/* Tabs */
+div[data-testid="stTabs"] [data-baseweb="tab-list"] {
+    background: var(--dm-surface2) !important;
+    border-radius: 10px 10px 0 0 !important;
+    gap: 4px !important;
+    padding: 4px !important;
+    border: 1px solid var(--dm-border) !important;
+    border-bottom: none !important;
 }
 div[data-testid="stTabs"] [role="tablist"] button {
+    color: var(--dm-muted) !important;
     font-weight: 500 !important;
     font-size: 13px !important;
-    border-radius: 8px 8px 0 0 !important;
-    transition: color 0.2s ease, background 0.2s ease !important;
+    border-radius: 8px !important;
 }
 div[data-testid="stTabs"] [role="tablist"] button[aria-selected="true"] {
-    color: var(--sf-mid) !important;
+    color: var(--dm-text) !important;
     font-weight: 600 !important;
+    background: var(--dm-surface3) !important;
 }
-.stTextInput input {
-    border-radius: 12px !important;
-    border: 1px solid var(--sf-border-strong) !important;
-    padding: 12px 14px !important;
-    font-size: 15px !important;
-    background: var(--sf-surface) !important;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+/* Inputs */
+.stTextInput input, .stTextArea textarea {
+    border-radius: 10px !important;
+    border: 1px solid var(--dm-border2) !important;
+    background: var(--dm-bg-mid) !important;
+    color: var(--dm-text) !important;
+    caret-color: var(--dm-sky) !important;
 }
-.stTextInput input:focus {
-    border-color: var(--sf-sky) !important;
-    box-shadow: 0 0 0 3px rgba(41, 181, 232, 0.2) !important;
+.stTextInput input:focus, .stTextArea textarea:focus {
+    border-color: var(--dm-sky) !important;
+    box-shadow: 0 0 0 2px var(--dm-glow) !important;
+}
+/* Radio */
+div[data-testid="stRadio"] label {
+    color: var(--dm-muted) !important;
+}
+div[data-testid="stRadio"] [role="radiogroup"] label[data-baseweb="radio"] {
+    color: var(--dm-text) !important;
+}
+/* Markdown in main */
+.main .stMarkdown, section.main p, section.main li, section.main span {
+    color: inherit;
 }
 hr {
     margin: 1.25rem 0 !important;
     border: none !important;
     height: 1px !important;
-    background: linear-gradient(90deg, transparent, var(--sf-border), transparent) !important;
+    background: linear-gradient(90deg, transparent, var(--dm-border), transparent) !important;
 }
+label[data-testid="stWidgetLabel"] {
+    color: var(--dm-muted2) !important;
+}
+/* Alerts */
+div[data-testid="stAlert"] {
+    background: rgba(234, 179, 8, 0.08) !important;
+    border: 1px solid rgba(234, 179, 8, 0.35) !important;
+    border-radius: 10px !important;
+}
+div[data-testid="stAlert"] p, div[data-testid="stAlert"] div {
+    color: #fde68a !important;
+}
+/* Expanders */
+.streamlit-expanderHeader {
+    color: var(--dm-sky) !important;
+}
+[data-testid="stExpander"] details {
+    background: var(--dm-surface2) !important;
+    border: 1px solid var(--dm-border) !important;
+    border-radius: 10px !important;
+}
+/* Dataframe / tables */
+div[data-testid="stDataFrame"] {
+    border-radius: 10px !important;
+    border: 1px solid var(--dm-border) !important;
+    overflow: hidden !important;
+}
+/* Narrative card */
 .ei-narrative-card {
-    border-radius: 14px;
-    padding: 16px 18px 18px 18px;
+    border-radius: 12px;
+    padding: 16px 18px;
     margin-bottom: 14px;
-    background: var(--sf-bg-warm);
-    border: 1px solid var(--sf-border);
-    box-shadow: none;
+    background: var(--dm-surface2);
+    border: 1px solid var(--dm-border);
     position: relative;
     overflow: hidden;
     animation: ei-card-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -736,7 +934,7 @@ hr {
     position: absolute;
     left: 0; top: 0; bottom: 0;
     width: 3px;
-    background: linear-gradient(180deg, var(--sf-mid), var(--sf-sky));
+    background: linear-gradient(180deg, var(--dm-sky-dim), var(--dm-sky));
     border-radius: 3px 0 0 3px;
 }
 .ei-narrative-head {
@@ -750,75 +948,63 @@ hr {
 .ei-narrative-kicker {
     font-size: 13px;
     font-weight: 600;
-    letter-spacing: -0.01em;
-    text-transform: none;
-    color: var(--sf-text);
+    color: var(--dm-text);
 }
 .ei-narrative-badge {
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: #fff;
-    background: var(--sf-mid);
+    color: #061018;
+    background: var(--dm-sky);
     padding: 4px 10px;
     border-radius: 999px;
 }
 .ei-narrative-body {
     font-size: 15px;
     line-height: 1.65;
-    color: var(--sf-text);
+    color: var(--dm-muted);
     padding-left: 10px;
-    font-weight: 400;
 }
 @keyframes ei-card-in {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
 }
+/* Chat bubbles */
 .user-bubble {
-    background: var(--sf-mid);
-    color: #fff;
+    background: linear-gradient(135deg, #1a4a66 0%, var(--dm-sky-dim) 100%);
+    color: #f0f9ff;
     padding: 12px 16px;
-    border-radius: 18px 18px 4px 18px;
-    margin: 10px 0;
-    max-width: 88%;
-    float: right;
-    clear: both;
-    font-size: 15px;
-    line-height: 1.5;
-    font-weight: 400;
-    box-shadow: 0 2px 12px rgba(17, 86, 127, 0.2);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-.user-bubble:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 18px rgba(17, 86, 127, 0.25);
-}
-.ai-bubble {
-    background: var(--sf-surface);
-    color: var(--sf-text);
-    padding: 12px 16px;
-    border-radius: 18px 18px 18px 4px;
+    border-radius: 16px 16px 4px 16px;
     margin: 10px 0;
     max-width: 92%;
+    float: right;
+    clear: both;
+    font-size: 14px;
+    line-height: 1.5;
+    border: 1px solid rgba(41, 181, 232, 0.35);
+    box-shadow: 0 4px 20px rgba(41, 181, 232, 0.12);
+}
+.ai-bubble {
+    background: var(--dm-surface2);
+    color: var(--dm-text);
+    padding: 12px 16px;
+    border-radius: 16px 16px 16px 4px;
+    margin: 10px 0;
+    max-width: 95%;
     float: left;
     clear: both;
-    font-size: 15px;
+    font-size: 14px;
     line-height: 1.55;
-    font-weight: 400;
-    border: 1px solid var(--sf-border);
-    box-shadow: var(--ei-shadow);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    border: 1px solid var(--dm-border);
 }
-.ai-bubble:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--ei-shadow-md);
-}
+.clearfix { clear: both; }
+/* SQL */
 .sql-box {
-    background: linear-gradient(165deg, #0c2d3f 0%, #11567F 40%, #0a2230 100%);
-    color: #bae6fd;
+    background: linear-gradient(165deg, #05080c 0%, #0d1520 50%, #0a121c 100%);
+    color: #7dd3fc;
     padding: 14px 16px;
-    border-radius: 12px;
+    border-radius: 10px;
     font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, monospace;
     font-size: 12px;
     line-height: 1.45;
@@ -826,24 +1012,25 @@ hr {
     overflow-x: auto;
     margin-top: 10px;
     border: 1px solid rgba(41, 181, 232, 0.25);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
 }
-.sql-box:hover {
-    border-color: rgba(41, 181, 232, 0.45);
-}
-.clearfix { clear: both; }
-/* Claude-style section titles: sentence case, no heavy bars */
 .section-label {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--sf-muted2);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--dm-sky);
     margin-bottom: 10px;
-    padding-left: 0;
-    border-left: none;
-    letter-spacing: -0.01em;
+}
+.section-label-lg {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--dm-text);
+    letter-spacing: -0.02em;
+    margin-bottom: 12px;
     text-transform: none;
 }
+/* Loading */
 @keyframes analyst-float-y {
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(-8px); }
@@ -892,18 +1079,18 @@ hr {
     margin: -7px 0 0 -7px;
     animation: analyst-orbit 4.5s linear infinite;
 }
-.analyst-orb-1 { background: linear-gradient(135deg, var(--sf-mid), var(--sf-sky)); animation-duration: 3.8s; }
-.analyst-orb-2 { background: linear-gradient(135deg, var(--sf-sky), #7dd3fc); animation-duration: 5.2s; animation-direction: reverse; }
-.analyst-orb-3 { background: linear-gradient(135deg, var(--sf-mid), #0c4a63); animation-duration: 4.2s; }
+.analyst-orb-1 { background: linear-gradient(135deg, var(--dm-sky-dim), var(--dm-sky)); animation-duration: 3.8s; }
+.analyst-orb-2 { background: linear-gradient(135deg, var(--dm-sky), var(--dm-sky-bright)); animation-duration: 5.2s; animation-direction: reverse; }
+.analyst-orb-3 { background: linear-gradient(135deg, #1e3a5f, var(--dm-sky-dim)); animation-duration: 4.2s; }
 .analyst-loading-card {
     position: relative;
     z-index: 1;
     text-align: center;
     padding: 20px 28px 22px 28px;
-    border-radius: 16px;
-    background: var(--sf-surface);
-    border: 1px solid var(--sf-border);
-    box-shadow: var(--ei-shadow-md);
+    border-radius: 14px;
+    background: var(--dm-surface2);
+    border: 1px solid var(--dm-border);
+    box-shadow: var(--dm-shadow);
     animation: analyst-float-y 3.2s ease-in-out infinite, analyst-pulse-ring 2.4s ease-out infinite;
     max-width: 520px;
     margin: 0 auto;
@@ -913,13 +1100,13 @@ hr {
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: var(--sf-sky);
+    color: var(--dm-sky);
     margin-bottom: 8px;
 }
 .analyst-loading-title {
     font-size: 17px;
     font-weight: 600;
-    color: var(--sf-mid);
+    color: var(--dm-text);
     margin-bottom: 12px;
     line-height: 1.35;
 }
@@ -933,21 +1120,22 @@ hr {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: linear-gradient(180deg, var(--sf-mid), var(--sf-sky));
+    background: linear-gradient(180deg, var(--dm-sky), var(--dm-sky-bright));
     animation: analyst-dot-bounce 1.05s ease-in-out infinite;
 }
 .analyst-dots span:nth-child(2) { animation-delay: 0.15s; }
 .analyst-dots span:nth-child(3) { animation-delay: 0.3s; }
 .analyst-hint {
     font-size: 13px;
-    color: var(--sf-muted2);
+    color: var(--dm-muted);
     line-height: 1.45;
     padding-top: 8px;
-    border-top: 1px solid var(--sf-border);
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6) 20%, rgba(255,255,255,0.6) 80%, transparent);
+    border-top: 1px solid var(--dm-border);
+    background: linear-gradient(90deg, transparent, rgba(41,181,232,0.06) 20%, rgba(41,181,232,0.06) 80%, transparent);
     background-size: 200% 100%;
     animation: analyst-shimmer 4s ease-in-out infinite;
 }
+/* Welcome */
 @keyframes welcome-hero-in {
     from { opacity: 0; transform: translateY(14px); }
     to { opacity: 1; transform: translateY(0); }
@@ -956,23 +1144,19 @@ hr {
     from { opacity: 0; transform: translateX(-6px); }
     to { opacity: 1; transform: translateX(0); }
 }
-@keyframes welcome-gradient-shift {
-    0%, 100% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-}
 .welcome-hero-shell {
-    border-radius: 16px;
+    border-radius: 14px;
     padding: 22px 24px 20px 24px;
     margin-bottom: 18px;
-    background: var(--sf-surface);
-    border: 1px solid var(--sf-border);
-    box-shadow: var(--ei-shadow);
+    background: linear-gradient(135deg, var(--dm-surface2) 0%, var(--dm-surface) 100%);
+    border: 1px solid var(--dm-border);
+    box-shadow: var(--dm-shadow);
     animation: welcome-hero-in 0.65s ease-out both;
 }
 .welcome-hero-greeting {
     font-size: 14px;
     font-weight: 600;
-    color: var(--sf-mid);
+    color: var(--dm-sky);
     margin: 0 0 6px 0;
     animation: welcome-line-in 0.5s ease-out 0.08s both;
 }
@@ -981,13 +1165,12 @@ hr {
     font-weight: 700;
     line-height: 1.3;
     margin: 0 0 10px 0;
-    color: var(--sf-text);
-    letter-spacing: -0.02em;
+    color: var(--dm-text);
     animation: welcome-line-in 0.55s ease-out 0.18s both;
 }
 .welcome-hero-body {
     font-size: 15px;
-    color: var(--sf-muted2);
+    color: var(--dm-muted);
     line-height: 1.55;
     margin: 0 0 14px 0;
     max-width: 640px;
@@ -1004,16 +1187,12 @@ hr {
     font-weight: 600;
     padding: 6px 12px;
     border-radius: 999px;
-    background: var(--sf-bg-warm);
-    border: 1px solid var(--sf-border);
-    color: var(--sf-mid);
-    transition: transform 0.18s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-    display: inline-block;
+    background: var(--dm-surface3);
+    border: 1px solid var(--dm-border);
+    color: var(--dm-sky-bright);
 }
 .welcome-chip:hover {
-    transform: translateY(-2px);
-    border-color: rgba(41, 181, 232, 0.4);
-    box-shadow: var(--ei-shadow-md);
+    border-color: var(--dm-sky-dim);
 }
 @keyframes welcome-back-in {
     from { opacity: 0; transform: translateY(-6px); }
@@ -1021,16 +1200,17 @@ hr {
 }
 .welcome-back-strip {
     animation: welcome-back-in 0.45s ease-out both;
-    border-radius: 14px;
+    border-radius: 12px;
     padding: 12px 18px;
     margin-bottom: 14px;
-    background: var(--sf-bg-warm);
-    border: 1px solid var(--sf-border);
+    background: var(--dm-surface2);
+    border: 1px solid var(--dm-border);
     font-size: 14px;
-    color: var(--sf-text);
+    color: var(--dm-muted);
     font-weight: 500;
-    box-shadow: var(--ei-shadow);
 }
+.welcome-back-strip strong { color: var(--dm-text); }
+/* Charts */
 @keyframes chart-reveal-pop {
     0% { opacity: 0; transform: translateY(10px) scale(0.99); }
     100% { opacity: 1; transform: translateY(0) scale(1); }
@@ -1040,19 +1220,24 @@ div[data-testid="stArrowVegaLiteChart"],
 div[data-testid*="VegaLiteChart"],
 div[data-testid="stPlotlyChart"] {
     animation: chart-reveal-pop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both !important;
+    border-radius: 10px !important;
+    border: 1px solid var(--dm-border) !important;
+    background: var(--dm-surface2) !important;
+    padding: 8px !important;
 }
 div[data-testid="stDataFrame"] {
     animation: chart-reveal-pop 0.45s ease-out both !important;
 }
+/* Persona */
 .persona-hints {
     margin: 8px 0 4px 0;
-    padding: 14px 16px;
-    border-radius: 12px;
-    background: var(--sf-bg-warm);
-    border: 1px solid var(--sf-border);
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--dm-bg-mid);
+    border: 1px solid var(--dm-border);
     font-size: 13px;
     line-height: 1.5;
-    color: var(--sf-muted2);
+    color: var(--dm-muted);
 }
 .persona-hint-row {
     display: flex;
@@ -1060,63 +1245,93 @@ div[data-testid="stDataFrame"] {
     align-items: baseline;
     margin: 2px 0;
     padding: 8px 10px;
-    border-radius: 10px;
-    transition: background 0.2s ease, border-color 0.2s ease;
+    border-radius: 8px;
     border: 1px solid transparent;
 }
 .persona-hint-row:hover {
-    background: var(--sf-surface);
-    border-color: var(--sf-border);
-}
-.persona-hint-row + .persona-hint-row {
-    margin-top: 2px;
+    background: var(--dm-surface2);
 }
 .persona-hint-active {
-    background: rgba(41, 181, 232, 0.08) !important;
-    border: 1px solid rgba(41, 181, 232, 0.28) !important;
+    background: rgba(41, 181, 232, 0.1) !important;
+    border: 1px solid rgba(41, 181, 232, 0.35) !important;
 }
 .persona-hint-name {
     flex: 0 0 92px;
     font-weight: 700;
-    color: var(--sf-mid);
-    font-size: 11px;
-    letter-spacing: 0.05em;
+    color: var(--dm-sky);
+    font-size: 10px;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
 }
 .persona-hint-text { flex: 1; min-width: 0; }
+/* Empty state */
 .ei-empty-state {
     text-align: center;
-    padding: 44px 22px 48px 22px;
-    color: var(--sf-muted);
-    background: var(--sf-bg-warm);
-    border-radius: 14px;
-    border: 1px dashed var(--sf-border-strong);
-    box-shadow: none;
+    padding: 3rem 1.5rem;
+    color: var(--dm-muted);
+    background: var(--dm-bg-mid);
+    border-radius: 12px;
+    border: 1px dashed var(--dm-border2);
     animation: ei-empty-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .ei-empty-state .ei-empty-icon {
     font-size: 44px;
     margin-bottom: 12px;
-    line-height: 1;
-    opacity: 0.85;
+    opacity: 0.9;
 }
 .ei-empty-state .ei-empty-title {
     font-size: 17px;
     font-weight: 700;
     margin-bottom: 8px;
-    color: var(--sf-text);
-    letter-spacing: -0.02em;
+    color: var(--dm-text);
 }
 .ei-empty-state .ei-empty-copy {
     font-size: 14px;
     line-height: 1.6;
     max-width: 380px;
     margin: 0 auto;
-    color: var(--sf-muted2);
+    color: var(--dm-muted);
+}
+.ei-empty-state .ei-empty-copy strong {
+    color: var(--dm-ice);
 }
 details summary {
     font-weight: 600 !important;
-    color: var(--sf-mid) !important;
+    color: var(--dm-sky) !important;
+}
+/* Query classification */
+.ei-query-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    background: var(--dm-bg-mid);
+    border: 1px solid var(--dm-border);
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--dm-muted);
+}
+.ei-query-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #061018;
+    background: var(--dm-sky);
+    padding: 4px 10px;
+    border-radius: 6px;
+}
+.ei-query-desc {
+    flex: 1;
+    min-width: 140px;
+    line-height: 1.4;
+}
+/* Spinner / caption */
+.stCaption, [data-testid="stCaption"] {
+    color: var(--dm-muted2) !important;
 }
 @media (prefers-reduced-motion: reduce) {
     .welcome-hero-shell, .welcome-chip, .welcome-back-strip,
@@ -1136,6 +1351,7 @@ details summary {
     to { opacity: 1; transform: translateY(0); }
 }
 </style>
+
 
 """,
     unsafe_allow_html=True,
@@ -1406,9 +1622,13 @@ Plain prose, no bullet points unless Press mode needs a very short second senten
         return ""
 
 
-def render_chart(df: pd.DataFrame) -> None:
-    if df.empty or "Error" in df.columns or len(df.columns) < 2:
+def render_chart(df: pd.DataFrame, question: str = "") -> None:
+    """Pick line / area / bar / scatter / table from data shape + question hints."""
+    if df.empty or "Error" in df.columns:
         return
+    qctx = question or str(st.session_state.get("last_user_question") or "")
+    kind, reason = _infer_chart_plan(df, qctx)
+    st.caption(f"**Auto chart:** {reason}")
     cols = df.columns.tolist()
     date_col = next(
         (
@@ -1420,15 +1640,22 @@ def render_chart(df: pd.DataFrame) -> None:
         None,
     )
     num_cols = list(df.select_dtypes(include="number").columns)
+    if len(df.columns) < 2 or kind == "table":
+        st.dataframe(df, use_container_width=True)
+        return
     if not num_cols:
         st.dataframe(df, use_container_width=True)
         return
-    if date_col and num_cols:
+
+    if date_col and num_cols and kind in ("line", "area"):
         try:
             plot_df = df[[date_col] + num_cols].copy()
             plot_df[date_col] = pd.to_datetime(plot_df[date_col], errors="coerce")
             plot_df = plot_df.sort_values(date_col).set_index(date_col)
-            st.line_chart(plot_df, use_container_width=True)
+            if kind == "area":
+                st.area_chart(plot_df, use_container_width=True)
+            else:
+                st.line_chart(plot_df, use_container_width=True)
             dcol, vcol = date_col, num_cols[0]
             plot_df_reset = plot_df.reset_index()
             anomalies = _zscore_anomaly_rows(plot_df_reset, dcol, vcol)
@@ -1452,12 +1679,41 @@ def render_chart(df: pd.DataFrame) -> None:
             return
         except Exception:  # noqa: BLE001
             pass
+
     cat_cols = [c for c in cols if c not in num_cols]
+    if kind == "bar" and cat_cols and len(num_cols) == 1:
+        try:
+            plot_df = df[[cat_cols[0], num_cols[0]]].copy()
+            plot_df = plot_df.set_index(cat_cols[0])
+            st.bar_chart(plot_df, use_container_width=True)
+            return
+        except Exception:  # noqa: BLE001
+            pass
+
+    if kind == "scatter" and len(num_cols) >= 2:
+        try:
+            xn, yn = num_cols[0], num_cols[1]
+            scat = df[[xn, yn]].copy()
+            st.scatter_chart(scat, x=xn, y=yn, use_container_width=True)
+            return
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Fallback: try bar then line then table
     if cat_cols and len(num_cols) == 1:
         try:
             plot_df = df[[cat_cols[0], num_cols[0]]].copy()
             plot_df = plot_df.set_index(cat_cols[0])
             st.bar_chart(plot_df, use_container_width=True)
+            return
+        except Exception:  # noqa: BLE001
+            pass
+    if date_col and num_cols:
+        try:
+            plot_df = df[[date_col] + num_cols].copy()
+            plot_df[date_col] = pd.to_datetime(plot_df[date_col], errors="coerce")
+            plot_df = plot_df.sort_values(date_col).set_index(date_col)
+            st.line_chart(plot_df, use_container_width=True)
             return
         except Exception:  # noqa: BLE001
             pass
@@ -1518,6 +1774,12 @@ if "welcome_hero_dismissed" not in st.session_state:
     st.session_state.welcome_hero_dismissed = False
 if "last_user_question" not in st.session_state:
     st.session_state.last_user_question = ""
+if "last_query_class" not in st.session_state:
+    st.session_state.last_query_class = ""
+if "last_query_class_desc" not in st.session_state:
+    st.session_state.last_query_class_desc = ""
+if "last_ambiguity_warnings" not in st.session_state:
+    st.session_state.last_ambiguity_warnings = []
 
 def _glass_panel():
     """Frosted panel wrapper; uses container(border=…) when the runtime supports it."""
@@ -1533,6 +1795,37 @@ def _glass_panel():
 if session is None:
     st.error("Run this app inside **Streamlit in Snowflake** (active Snowpark session required).")
     st.stop()
+
+with st.sidebar:
+    st.markdown("### Chat & session")
+    st.caption("History is for this browser session only (Streamlit state).")
+    st.checkbox("Show conversation bubbles", value=True, key="ei_show_bubbles")
+    hist_lines: list[str] = []
+    for _m in st.session_state.get("messages", []):
+        _role = "You" if _m.get("role") == "user" else "Assistant"
+        hist_lines.append(f"**{_role}**\n{_m.get('content', '')}")
+    _transcript = "\n\n---\n\n".join(hist_lines) if hist_lines else "(No messages yet.)"
+    with st.expander("Full chat transcript", expanded=False):
+        st.code(_transcript, language=None)
+    st.download_button(
+        label="Download transcript (.txt)",
+        data=_transcript.encode("utf-8"),
+        file_name=f"economic_intel_chat_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+        mime="text/plain",
+        key="ei_dl_transcript",
+    )
+    if st.button("Clear chat & analysis", type="secondary", key="ei_clear_session"):
+        st.session_state.messages = []
+        st.session_state.last_df = None
+        st.session_state.last_sql = None
+        st.session_state.last_interpretation = None
+        st.session_state.last_followups = []
+        st.session_state.last_user_question = ""
+        st.session_state.last_query_class = ""
+        st.session_state.last_query_class_desc = ""
+        st.session_state.last_ambiguity_warnings = []
+        st.session_state.pending_question = None
+        st.rerun()
 
 st.markdown(
     """
@@ -1577,45 +1870,129 @@ st.divider()
 
 query_progress = st.empty()
 
-with _glass_panel():
-    # Claude-style split: conversation (narrower) + analysis / artifact (wider)
-    left, right = st.columns([5, 7], gap="large")
+# Dashboard layout: primary analysis (wide) + conversation rail (narrow)
+_analysis_col, _chat_col = st.columns([11, 7], gap="large")
 
-    with left:
+with _analysis_col:
+    with _glass_panel():
         st.markdown(
-            '<div class="section-label">Conversation</div>',
+            '<div class="section-label-lg">Analysis workspace</div>',
             unsafe_allow_html=True,
         )
-        chat_container = st.container(height=420)
+        st.caption("Charts, narrative, SQL transparency, and exports — driven by your latest question.")
+        if st.session_state.get("last_query_class"):
+            _qc = html.escape(str(st.session_state.last_query_class))
+            _qd = html.escape(str(st.session_state.last_query_class_desc))
+            st.markdown(
+                f'<div class="ei-query-meta"><span class="ei-query-badge">{_qc}</span>'
+                f'<span class="ei-query-desc">{_qd}</span></div>',
+                unsafe_allow_html=True,
+            )
+        for _warn in st.session_state.get("last_ambiguity_warnings") or []:
+            st.warning(_warn)
+        if st.session_state.last_followups:
+            st.markdown(
+                '<div class="section-label">Suggested follow-ups</div>',
+                unsafe_allow_html=True,
+            )
+            _fcols = st.columns(2)
+            for _i, _fq in enumerate(st.session_state.last_followups):
+                with _fcols[_i % 2]:
+                    if st.button(_fq, key=f"fu_an_{_i}", use_container_width=True):
+                        st.session_state.pending_question = _fq
+                        st.rerun()
+        if st.session_state.last_df is not None:
+            if st.session_state.last_interpretation:
+                _render_narrative_card(st.session_state.last_interpretation)
+            _ldf = st.session_state.last_df
+            _dc, _vc = _time_series_cols(_ldf)
+            if _dc and _vc:
+                _ci = _correlation_insight_line(_ldf, _dc, _vc)
+                if _ci:
+                    st.markdown(_ci)
+            render_chart(_ldf, st.session_state.get("last_user_question") or "")
+            with st.expander("Raw data table"):
+                st.dataframe(_ldf, use_container_width=True)
+            if st.session_state.last_sql:
+                st.markdown(
+                    '<div class="section-label" style="margin-top:12px">SQL — transparency</div>',
+                    unsafe_allow_html=True,
+                )
+                safe_sql = html.escape(st.session_state.last_sql)
+                st.markdown(
+                    f'<div class="sql-box">{safe_sql}</div>',
+                    unsafe_allow_html=True,
+                )
+            _pdf = build_brief_pdf_bytes(
+                st.session_state.last_user_question or "US Economic Intelligence — analyst brief",
+                st.session_state.last_interpretation or "",
+                st.session_state.last_sql or "",
+                _ldf,
+            )
+            if _pdf:
+                st.download_button(
+                    label="Export brief (PDF)",
+                    data=_pdf,
+                    file_name=f"economic_brief_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    mime="application/pdf",
+                    key="download_brief_pdf",
+                )
+        else:
+            st.markdown(
+                """
+<div class="ei-empty-state">
+  <div class="ei-empty-icon" aria-hidden="true">📈</div>
+  <div class="ei-empty-title">No analysis yet</div>
+  <div class="ei-empty-copy">
+    Use <strong>Ask</strong> on the right to run Cortex Analyst. Try <strong>CPI &amp; GDP</strong> or
+    <strong>Multi-metric</strong> prompts from the tabs, or type your own question.
+  </div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
+
+with _chat_col:
+    with _glass_panel():
+        st.markdown(
+            '<div class="section-label-lg">Ask &amp; converse</div>',
+            unsafe_allow_html=True,
+        )
+        chat_container = st.container(height=340)
         with chat_container:
-            for msg in st.session_state.messages:
-                if msg["role"] == "user":
-                    st.markdown(
-                        f'<div class="user-bubble">{html.escape(msg["content"])}</div>'
-                        '<div class="clearfix"></div>',
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.markdown(
-                        f'<div class="ai-bubble">{html.escape(msg["content"])}</div>'
-                        '<div class="clearfix"></div>',
-                        unsafe_allow_html=True,
-                    )
+            if st.session_state.get("ei_show_bubbles", True):
+                for msg in st.session_state.messages:
+                    if msg["role"] == "user":
+                        st.markdown(
+                            f'<div class="user-bubble">{html.escape(msg["content"])}</div>'
+                            '<div class="clearfix"></div>',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            f'<div class="ai-bubble">{html.escape(msg["content"])}</div>'
+                            '<div class="clearfix"></div>',
+                            unsafe_allow_html=True,
+                        )
+            elif not st.session_state.messages:
+                st.caption("Messages appear here after you ask.")
+            else:
+                st.caption("Bubbles hidden — see **Sidebar → Full chat transcript**.")
 
         with st.form("chat_form", clear_on_submit=True):
             user_input = st.text_input(
                 "Your question",
-                placeholder="e.g. How did unemployment change in 2020?",
+                placeholder="Ask about unemployment, CPI, retail, rates…",
                 label_visibility="collapsed",
             )
-            submitted = st.form_submit_button("Ask →", use_container_width=True)
+            submitted = st.form_submit_button("Run analysis →", use_container_width=True)
 
         st.markdown(
-            '<div class="section-label" style="margin-top:14px">Suggested prompts</div>',
+            '<div class="section-label" style="margin-top:10px">Starter prompts</div>',
             unsafe_allow_html=True,
         )
         tab_core, tab_pg, tab_wide, tab_co = st.tabs(
-            ["Core macro", "CPI & GDP", "Multi-metric (wide)", "Companies"]
+            ["Macro", "CPI / GDP", "Wide", "Companies"]
         )
         with tab_core:
             _render_suggestion_chips(SUGGESTED_CORE, "sug_core")
@@ -1628,72 +2005,13 @@ with _glass_panel():
 
         if st.session_state.last_followups:
             st.markdown(
-                '<div class="section-label" style="margin-top:14px">Follow-ups</div>',
+                '<div class="section-label" style="margin-top:10px">More follow-ups</div>',
                 unsafe_allow_html=True,
             )
-            fcols = st.columns(1)
             for i, fq in enumerate(st.session_state.last_followups):
-                if fcols[0].button(fq, key=f"fu_{i}", use_container_width=True):
+                if st.button(fq, key=f"fu_{i}", use_container_width=True):
                     st.session_state.pending_question = fq
                     st.rerun()
-
-    with right:
-        st.markdown(
-            '<div class="section-label">Analysis</div>',
-            unsafe_allow_html=True,
-        )
-        if st.session_state.last_df is not None:
-            with st.container():
-                if st.session_state.last_interpretation:
-                    _render_narrative_card(st.session_state.last_interpretation)
-                _ldf = st.session_state.last_df
-                _dc, _vc = _time_series_cols(_ldf)
-                if _dc and _vc:
-                    _ci = _correlation_insight_line(_ldf, _dc, _vc)
-                    if _ci:
-                        st.markdown(_ci)
-                render_chart(_ldf)
-                with st.expander("View raw data table"):
-                    st.dataframe(_ldf, use_container_width=True)
-                if st.session_state.last_sql:
-                    st.markdown(
-                        '<div class="section-label" style="margin-top:14px">'
-                        "SQL — transparency</div>",
-                        unsafe_allow_html=True,
-                    )
-                    safe_sql = html.escape(st.session_state.last_sql)
-                    st.markdown(
-                        f'<div class="sql-box">{safe_sql}</div>',
-                        unsafe_allow_html=True,
-                    )
-                _pdf = build_brief_pdf_bytes(
-                    st.session_state.last_user_question or "US Economic Intelligence — analyst brief",
-                    st.session_state.last_interpretation or "",
-                    st.session_state.last_sql or "",
-                    _ldf,
-                )
-                if _pdf:
-                    st.download_button(
-                        label="Export boardroom brief (PDF)",
-                        data=_pdf,
-                        file_name=f"economic_brief_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                        mime="application/pdf",
-                        key="download_brief_pdf",
-                    )
-        else:
-            st.markdown(
-                """
-<div class="ei-empty-state">
-  <div class="ei-empty-icon" aria-hidden="true">📈</div>
-  <div class="ei-empty-title">Ask a question to get started</div>
-  <div class="ei-empty-copy">
-    Try <strong>CPI &amp; GDP</strong> or <strong>Multi-metric (wide)</strong> for multi-series joins,
-    or type your own. Results, charts, and SQL transparency appear here.
-  </div>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
 
 # ══════════════════════════════════════════════════════════════════════════
 #  PROCESS QUESTION
@@ -1708,6 +2026,10 @@ elif submitted and user_input and user_input.strip():
 
 if question:
     question_for_model = _autocorrect_question(question)
+    _qc, _qd = classify_query(question_for_model)
+    st.session_state.last_query_class = _qc
+    st.session_state.last_query_class_desc = _qd
+    st.session_state.last_ambiguity_warnings = ambiguity_warnings(question_for_model)
     st.session_state.last_user_question = question
     st.session_state.messages.append({"role": "user", "content": question})
 
@@ -1769,7 +2091,9 @@ if question:
                     else:
                         st.session_state.last_interpretation = None
                     _progress_step("Generating smart follow-up suggestions…")
-                    st.session_state.last_followups = generate_followups(question_for_model, df)
+                    _llm_fu = generate_followups(question_for_model, df)
+                    _heur_fu = heuristic_followups(question_for_model, df, _qc)
+                    st.session_state.last_followups = merge_followup_lists(_llm_fu, _heur_fu, 6)
                     reply = (
                         narrative
                         or interpretation
@@ -1804,7 +2128,9 @@ if question:
                         digest = _result_digest(df)
                         st.session_state.last_interpretation = narrative or interpretation
                         _progress_step("Generating smart follow-up suggestions…")
-                        st.session_state.last_followups = generate_followups(question_for_model, df)
+                        _llm_fu2 = generate_followups(question_for_model, df)
+                        _heur_fu2 = heuristic_followups(question_for_model, df, _qc)
+                        st.session_state.last_followups = merge_followup_lists(_llm_fu2, _heur_fu2, 6)
                         fallback_msg = st.session_state.last_interpretation or "Here are the fallback results."
                         if digest:
                             fallback_msg = f"{fallback_msg}\n\n{digest}"
@@ -1831,6 +2157,9 @@ if question:
             st.session_state.messages.append(
                 {"role": "assistant", "content": f"Error: {e}"}
             )
+            st.session_state.last_df = None
+            st.session_state.last_sql = None
+            st.session_state.last_interpretation = None
             st.session_state.last_followups = []
             query_progress.empty()
 
