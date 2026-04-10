@@ -90,8 +90,8 @@ AND   att.FREQUENCY       = 'Monthly';
 
 -- ============================================================
 -- V_CPI  (headline CPI-U / all-items SA, monthly)
--- series_txt = human names + VARIABLE id (FRED CPIAUCSL / BLS CUSR0000SA0 often only on VARIABLE).
--- NOT ILIKE on COALESCE(...,'') avoids dropping rows when names are NULL.
+-- Tier A: exact FRED/BLS series ids. Tier B: strict metadata match (legacy).
+-- Tier C: permissive monthly CPI-like rows + QUALIFY (one row per GEO_ID+DATE) when A/B return nothing in your account.
 -- ============================================================
 CREATE OR REPLACE VIEW HACKATHON.DATA.V_CPI AS
 WITH cpi_base AS (
@@ -115,83 +115,125 @@ WITH cpi_base AS (
     FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
     JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
         ON ts.VARIABLE = att.VARIABLE
-)
-SELECT
-    GEO_ID,
-    DATE,
-    VALUE           AS cpi_index,
-    UNIT,
-    COALESCE(NULLIF(series_txt, ''), VARIABLE) AS VARIABLE_NAME,
-    FREQUENCY
-FROM cpi_base
-WHERE (
-        TRIM(FREQUENCY) = 'Monthly'
-        OR FREQUENCY ILIKE 'Month%'
-        OR UPPER(VARIABLE) LIKE '%CPIAUCSL%'
-      )
-  AND (
-        (
+),
+tier_ab AS (
+    SELECT
+        GEO_ID,
+        DATE,
+        VALUE           AS cpi_index,
+        UNIT,
+        COALESCE(NULLIF(series_txt, ''), VARIABLE) AS VARIABLE_NAME,
+        FREQUENCY
+    FROM cpi_base
+    WHERE (
+            TRIM(FREQUENCY) = 'Monthly'
+            OR FREQUENCY ILIKE 'Month%'
+            OR UPPER(VARIABLE) LIKE '%CPIAUCSL%'
+          )
+      AND (
             (
-                UPPER(VARIABLE) LIKE '%CPIAUCSL%'
-                AND UPPER(VARIABLE) NOT LIKE '%CPIAUCNS%'
-            )
-            OR UPPER(VARIABLE) LIKE '%CUSR0000SA0%'
-        )
-        OR (
-            (
-                RELEASE_SOURCE ILIKE '%Labor Statistics%'
-                OR RELEASE_SOURCE ILIKE '%BLS%'
-                OR TRIM(RELEASE_SOURCE) = 'Bureau of Labor Statistics'
-                OR RELEASE_SOURCE ILIKE '%Federal Reserve%'
-                OR RELEASE_SOURCE ILIKE '%FRED%'
-                OR RELEASE_SOURCE ILIKE '%Economic Data%'
-                OR RELEASE_NAME ILIKE '%Bureau of Labor Statistics%'
-                OR RELEASE_NAME ILIKE '%Consumer Price%'
-                OR RELEASE_NAME ILIKE '%Labor Statistics%'
-            )
-            AND (
-                TRIM(SEASONALLY_ADJUSTED) = 'Seasonally adjusted'
-                OR SEASONALLY_ADJUSTED ILIKE 'Seasonally adjusted%'
-                OR SEASONALLY_ADJUSTED ILIKE '%Seasonally adjusted%'
-                OR UPPER(TRIM(COALESCE(SEASONALLY_ADJUSTED, ''))) IN ('TRUE', 'YES', '1')
-                OR series_txt ILIKE '%seasonally adjust%'
-            )
-            AND (
-                MEASURE ILIKE '%consumer%price%'
-                OR MEASURE ILIKE '%CPI%'
-                OR MEASURE ILIKE '%price index%'
-                OR TRIM(MEASURE) = 'Consumer Price Index'
-                OR TRIM(MEASURE) ILIKE 'Consumer Price Index%'
-                OR (
-                    TRIM(COALESCE(MEASURE, '')) ILIKE 'index'
-                    AND series_txt ILIKE '%CPI%'
+                (
+                    UPPER(VARIABLE) LIKE '%CPIAUCSL%'
+                    AND UPPER(VARIABLE) NOT LIKE '%CPIAUCNS%'
                 )
-                OR (
-                    NULLIF(TRIM(COALESCE(MEASURE, '')), '') IS NULL
-                    AND series_txt ILIKE '%CPI%'
-                    AND (
-                        series_txt ILIKE '%all items%'
-                        OR series_txt ILIKE '%all urban%'
-                        OR series_txt ILIKE '%U.S. city average%'
-                        OR series_txt ILIKE '%city average%'
+                OR UPPER(VARIABLE) LIKE '%CUSR0000SA0%'
+            )
+            OR (
+                (
+                    RELEASE_SOURCE ILIKE '%Labor Statistics%'
+                    OR RELEASE_SOURCE ILIKE '%BLS%'
+                    OR TRIM(RELEASE_SOURCE) = 'Bureau of Labor Statistics'
+                    OR RELEASE_SOURCE ILIKE '%Federal Reserve%'
+                    OR RELEASE_SOURCE ILIKE '%FRED%'
+                    OR RELEASE_SOURCE ILIKE '%Economic Data%'
+                    OR RELEASE_NAME ILIKE '%Bureau of Labor Statistics%'
+                    OR RELEASE_NAME ILIKE '%Consumer Price%'
+                    OR RELEASE_NAME ILIKE '%Labor Statistics%'
+                )
+                AND (
+                    TRIM(SEASONALLY_ADJUSTED) = 'Seasonally adjusted'
+                    OR SEASONALLY_ADJUSTED ILIKE 'Seasonally adjusted%'
+                    OR SEASONALLY_ADJUSTED ILIKE '%Seasonally adjusted%'
+                    OR UPPER(TRIM(COALESCE(SEASONALLY_ADJUSTED, ''))) IN ('TRUE', 'YES', '1')
+                    OR series_txt ILIKE '%seasonally adjust%'
+                )
+                AND (
+                    MEASURE ILIKE '%consumer%price%'
+                    OR MEASURE ILIKE '%CPI%'
+                    OR MEASURE ILIKE '%price index%'
+                    OR TRIM(MEASURE) = 'Consumer Price Index'
+                    OR TRIM(MEASURE) ILIKE 'Consumer Price Index%'
+                    OR (
+                        TRIM(COALESCE(MEASURE, '')) ILIKE 'index'
+                        AND series_txt ILIKE '%CPI%'
+                    )
+                    OR (
+                        NULLIF(TRIM(COALESCE(MEASURE, '')), '') IS NULL
+                        AND series_txt ILIKE '%CPI%'
+                        AND (
+                            series_txt ILIKE '%all items%'
+                            OR series_txt ILIKE '%all urban%'
+                            OR series_txt ILIKE '%U.S. city average%'
+                            OR series_txt ILIKE '%city average%'
+                        )
                     )
                 )
+                AND (
+                    series_txt ILIKE '%all items%'
+                    OR series_txt ILIKE '%all urban%'
+                    OR series_txt ILIKE '%urban consumers%'
+                    OR series_txt ILIKE '%cpi-u%'
+                    OR series_txt ILIKE '%consumer price index%'
+                    OR series_txt ILIKE '%cpiaucsl%'
+                    OR (series_txt ILIKE '%CPI%' AND series_txt ILIKE '%U.S. city average%')
+                    OR (series_txt ILIKE '%CPI%' AND series_txt ILIKE '%city average%')
+                )
             )
-            AND (
-                series_txt ILIKE '%all items%'
-                OR series_txt ILIKE '%all urban%'
-                OR series_txt ILIKE '%urban consumers%'
-                OR series_txt ILIKE '%cpi-u%'
-                OR series_txt ILIKE '%consumer price index%'
-                OR series_txt ILIKE '%cpiaucsl%'
-                OR (series_txt ILIKE '%CPI%' AND series_txt ILIKE '%U.S. city average%')
-                OR (series_txt ILIKE '%CPI%' AND series_txt ILIKE '%city average%')
-            )
-        )
-      )
-  AND series_txt NOT ILIKE '%less food and energy%'
-  AND series_txt NOT ILIKE '%except food%'
-  AND series_txt NOT ILIKE '%core%';
+          )
+      AND series_txt NOT ILIKE '%less food and energy%'
+      AND series_txt NOT ILIKE '%except food%'
+      AND series_txt NOT ILIKE '%core%'
+),
+tier_c AS (
+    SELECT
+        GEO_ID,
+        DATE,
+        VALUE           AS cpi_index,
+        UNIT,
+        COALESCE(NULLIF(series_txt, ''), VARIABLE) AS VARIABLE_NAME,
+        FREQUENCY
+    FROM cpi_base
+    WHERE (TRIM(FREQUENCY) = 'Monthly' OR FREQUENCY ILIKE 'Month%')
+      AND VALUE BETWEEN 25 AND 900
+      AND (
+            UPPER(VARIABLE) LIKE '%CPIAUCSL%'
+            OR UPPER(VARIABLE) LIKE '%CUSR0000SA0%'
+            OR MEASURE ILIKE '%consumer%price%'
+            OR MEASURE ILIKE '%CPI%'
+            OR series_txt ILIKE '%consumer price%'
+            OR series_txt ILIKE '%cpi%'
+            OR UPPER(VARIABLE) LIKE '%CPI%'
+          )
+      AND UPPER(VARIABLE) NOT LIKE '%CPIAUCNS%'
+      AND series_txt NOT ILIKE '%less food and energy%'
+      AND series_txt NOT ILIKE '%except food%'
+      AND series_txt NOT ILIKE '%core%'
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY GEO_ID, DATE
+        ORDER BY
+            CASE
+                WHEN UPPER(VARIABLE) LIKE '%CPIAUCSL%' AND UPPER(VARIABLE) NOT LIKE '%CPIAUCNS%' THEN 0
+                WHEN UPPER(VARIABLE) LIKE '%CUSR0000SA0%' THEN 1
+                WHEN series_txt ILIKE '%all items%' OR series_txt ILIKE '%all urban%' THEN 2
+                ELSE 3
+            END,
+            VARIABLE
+    ) = 1
+)
+SELECT * FROM tier_ab
+UNION ALL
+SELECT * FROM tier_c c
+WHERE NOT EXISTS (SELECT 1 FROM tier_ab a WHERE a.GEO_ID = c.GEO_ID AND a.DATE = c.DATE);
 
 -- ============================================================
 -- V_GDP  (BEA — GDP level series, quarterly preferred; broad MEASURE / VARIABLE_NAME match)
@@ -231,23 +273,42 @@ WHERE (
   AND ts.VARIABLE_NAME NOT ILIKE '%contribution to percent change%'
   AND ts.VARIABLE_NAME NOT ILIKE '%share of gdp%'
   AND COALESCE(ts.UNIT, att.UNIT, '') NOT ILIKE '%percent%'
-  /* Headline level series: real/nominal GDP in dollars, not industry shares. */
+  /* Headline level (strict) OR permissive quarterly level rows (VALUE >> industry % shares). */
   AND (
-        ts.VARIABLE_NAME ILIKE '%real gross domestic product%'
-        OR ts.VARIABLE_NAME ILIKE '%real gdp%'
-        OR (
-            ts.VARIABLE_NAME ILIKE '%gross domestic product%'
-            AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
-            AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
+        (
+            ts.VARIABLE_NAME ILIKE '%real gross domestic product%'
+            OR ts.VARIABLE_NAME ILIKE '%real gdp%'
+            OR (
+                ts.VARIABLE_NAME ILIKE '%gross domestic product%'
+                AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
+                AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
+            )
+            OR (
+                ts.VARIABLE_NAME ILIKE '%gdp%'
+                AND (
+                    COALESCE(ts.UNIT, att.UNIT, '') ILIKE '%billion%'
+                    OR COALESCE(ts.UNIT, att.UNIT, '') ILIKE '%dollar%'
+                )
+                AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
+                AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
+            )
         )
         OR (
-            ts.VARIABLE_NAME ILIKE '%gdp%'
-            AND (
-                COALESCE(ts.UNIT, att.UNIT, '') ILIKE '%billion%'
-                OR COALESCE(ts.UNIT, att.UNIT, '') ILIKE '%dollar%'
-            )
+            att.FREQUENCY = 'Quarterly'
+            AND ts.VALUE IS NOT NULL
+            AND TRY_TO_DOUBLE(ts.VALUE) > 500
             AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
             AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
+            AND ts.VARIABLE_NAME NOT ILIKE '%percentage%'
+            AND ts.VARIABLE_NAME NOT ILIKE '%value added%'
+            AND ts.VARIABLE_NAME NOT ILIKE '%contribution%'
+            AND (
+                ts.VARIABLE_NAME ILIKE '%gross domestic product%'
+                OR (
+                    ts.VARIABLE_NAME ILIKE '%gdp%'
+                    AND LENGTH(COALESCE(ts.VARIABLE_NAME, '')) < 120
+                )
+            )
         )
       );
 

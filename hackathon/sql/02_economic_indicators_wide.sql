@@ -1,35 +1,13 @@
 -- Curated macro panel: one row per (GEO_ID, OBSERVATION_DATE) with multiple measures for join/compare story.
 --
--- Prerequisites: HACKATHON.DATA.V_UNEMPLOYMENT, V_RETAIL_SALES, V_INTEREST_RATES, V_INDUSTRIAL_PRODUCTION
--- (run hackathon/economic_indicators_views.sql through those views at minimum).
--- CPI and GDP are inlined here from SNOWFLAKE_PUBLIC_DATA_FREE — you do NOT need V_CPI / V_GDP for this script.
--- Still create V_CPI and V_GDP in the full views script for Cortex granular logical tables.
+-- Prerequisites: run hackathon/economic_indicators_views.sql first (V_UNEMPLOYMENT, V_RETAIL_SALES,
+-- V_INTEREST_RATES, V_INDUSTRIAL_PRODUCTION, V_CPI, V_GDP). CPI and GDP columns come from V_CPI / V_GDP
+-- so they stay aligned with the granular semantic tables.
 --
 -- Used by: semantic `macro_wide` (ECONOMIC_INDICATORS_WIDE).
 
 CREATE OR REPLACE VIEW HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE AS
 WITH
-cpi_base AS (
-    SELECT
-        ts.GEO_ID,
-        ts."DATE",
-        ts.VALUE,
-        ts.VARIABLE,
-        att.FREQUENCY,
-        att.RELEASE_SOURCE,
-        att.RELEASE_NAME,
-        att.MEASURE,
-        att.SEASONALLY_ADJUSTED,
-        COALESCE(
-            NULLIF(TRIM(ts.VARIABLE_NAME), ''),
-            NULLIF(TRIM(att.VARIABLE_NAME), ''),
-            NULLIF(TRIM(ts.VARIABLE), ''),
-            ''
-        ) AS series_txt
-    FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
-    JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
-        ON ts.VARIABLE = att.VARIABLE
-),
 u AS (
     SELECT
         GEO_ID,
@@ -83,128 +61,17 @@ cpi AS (
     SELECT
         GEO_ID,
         "DATE" AS observation_date,
-        AVG(VALUE) AS cpi
-    FROM cpi_base
-    WHERE (
-            TRIM(FREQUENCY) = 'Monthly'
-            OR FREQUENCY ILIKE 'Month%'
-            OR UPPER(VARIABLE) LIKE '%CPIAUCSL%'
-          )
-      AND (
-            (
-                (
-                    UPPER(VARIABLE) LIKE '%CPIAUCSL%'
-                    AND UPPER(VARIABLE) NOT LIKE '%CPIAUCNS%'
-                )
-                OR UPPER(VARIABLE) LIKE '%CUSR0000SA0%'
-            )
-            OR (
-                (
-                    RELEASE_SOURCE ILIKE '%Labor Statistics%'
-                    OR RELEASE_SOURCE ILIKE '%BLS%'
-                    OR TRIM(RELEASE_SOURCE) = 'Bureau of Labor Statistics'
-                    OR RELEASE_SOURCE ILIKE '%Federal Reserve%'
-                    OR RELEASE_SOURCE ILIKE '%FRED%'
-                    OR RELEASE_SOURCE ILIKE '%Economic Data%'
-                    OR RELEASE_NAME ILIKE '%Bureau of Labor Statistics%'
-                    OR RELEASE_NAME ILIKE '%Consumer Price%'
-                    OR RELEASE_NAME ILIKE '%Labor Statistics%'
-                )
-                AND (
-                    TRIM(SEASONALLY_ADJUSTED) = 'Seasonally adjusted'
-                    OR SEASONALLY_ADJUSTED ILIKE 'Seasonally adjusted%'
-                    OR SEASONALLY_ADJUSTED ILIKE '%Seasonally adjusted%'
-                    OR UPPER(TRIM(COALESCE(SEASONALLY_ADJUSTED, ''))) IN ('TRUE', 'YES', '1')
-                    OR series_txt ILIKE '%seasonally adjust%'
-                )
-                AND (
-                    MEASURE ILIKE '%consumer%price%'
-                    OR MEASURE ILIKE '%CPI%'
-                    OR MEASURE ILIKE '%price index%'
-                    OR TRIM(MEASURE) = 'Consumer Price Index'
-                    OR TRIM(MEASURE) ILIKE 'Consumer Price Index%'
-                    OR (
-                        TRIM(COALESCE(MEASURE, '')) ILIKE 'index'
-                        AND series_txt ILIKE '%CPI%'
-                    )
-                    OR (
-                        NULLIF(TRIM(COALESCE(MEASURE, '')), '') IS NULL
-                        AND series_txt ILIKE '%CPI%'
-                        AND (
-                            series_txt ILIKE '%all items%'
-                            OR series_txt ILIKE '%all urban%'
-                            OR series_txt ILIKE '%U.S. city average%'
-                            OR series_txt ILIKE '%city average%'
-                        )
-                    )
-                )
-                AND (
-                    series_txt ILIKE '%all items%'
-                    OR series_txt ILIKE '%all urban%'
-                    OR series_txt ILIKE '%urban consumers%'
-                    OR series_txt ILIKE '%cpi-u%'
-                    OR series_txt ILIKE '%consumer price index%'
-                    OR series_txt ILIKE '%cpiaucsl%'
-                    OR (series_txt ILIKE '%CPI%' AND series_txt ILIKE '%U.S. city average%')
-                    OR (series_txt ILIKE '%CPI%' AND series_txt ILIKE '%city average%')
-                )
-            )
-          )
-      AND series_txt NOT ILIKE '%less food and energy%'
-      AND series_txt NOT ILIKE '%except food%'
-      AND series_txt NOT ILIKE '%core%'
+        AVG(cpi_index) AS cpi
+    FROM HACKATHON.DATA.V_CPI
     GROUP BY GEO_ID, "DATE"
 ),
 gdp AS (
     SELECT
-        ts.GEO_ID,
-        ts."DATE" AS observation_date,
-        AVG(ts.VALUE) AS gdp
-    FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
-    JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
-        ON ts.VARIABLE = att.VARIABLE
-    WHERE (
-            att.RELEASE_SOURCE ILIKE '%Economic Analysis%'
-            OR att.RELEASE_SOURCE ILIKE '%BEA%'
-            OR TRIM(att.RELEASE_SOURCE) = 'Bureau of Economic Analysis'
-          )
-      AND att.FREQUENCY IN ('Quarterly', 'Annual')
-      AND (
-            att.MEASURE ILIKE '%gross domestic product%'
-            OR att.MEASURE ILIKE '%GDP%'
-            OR TRIM(att.MEASURE) = 'Gross Domestic Product'
-          )
-      AND (
-            ts.VARIABLE_NAME ILIKE '%gross domestic%'
-            OR ts.VARIABLE_NAME ILIKE '%GDP%'
-          )
-      AND ts.VARIABLE_NAME NOT ILIKE '%per capita%'
-      AND ts.VARIABLE_NAME NOT ILIKE '%growth%'
-      AND ts.VARIABLE_NAME NOT ILIKE '%change%'
-      AND ts.VARIABLE_NAME NOT ILIKE '%percentage%'
-      AND ts.VARIABLE_NAME NOT ILIKE '%value added by industry%'
-      AND ts.VARIABLE_NAME NOT ILIKE '%contribution to percent change%'
-      AND ts.VARIABLE_NAME NOT ILIKE '%share of gdp%'
-      AND COALESCE(ts.UNIT, att.UNIT, '') NOT ILIKE '%percent%'
-      AND (
-            ts.VARIABLE_NAME ILIKE '%real gross domestic product%'
-            OR ts.VARIABLE_NAME ILIKE '%real gdp%'
-            OR (
-                ts.VARIABLE_NAME ILIKE '%gross domestic product%'
-                AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
-                AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
-            )
-            OR (
-                ts.VARIABLE_NAME ILIKE '%gdp%'
-                AND (
-                    COALESCE(ts.UNIT, att.UNIT, '') ILIKE '%billion%'
-                    OR COALESCE(ts.UNIT, att.UNIT, '') ILIKE '%dollar%'
-                )
-                AND ts.VARIABLE_NAME NOT ILIKE '%industry%'
-                AND ts.VARIABLE_NAME NOT ILIKE '%sector%'
-            )
-          )
-    GROUP BY ts.GEO_ID, ts."DATE"
+        GEO_ID,
+        "DATE" AS observation_date,
+        AVG(gdp_value) AS gdp
+    FROM HACKATHON.DATA.V_GDP
+    GROUP BY GEO_ID, "DATE"
 ),
 spine AS (
     SELECT GEO_ID, observation_date FROM u

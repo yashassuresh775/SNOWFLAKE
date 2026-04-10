@@ -272,7 +272,7 @@ WITH candidates AS (
   INNER JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
     ON ts.VARIABLE = att.VARIABLE
   WHERE ts."DATE" BETWEEN '2019-01-01' AND '2024-12-31'
-    AND ts.VALUE BETWEEN 40 AND 500
+    AND ts.VALUE BETWEEN 25 AND 900
     AND (TRIM(att.FREQUENCY) = 'Monthly' OR att.FREQUENCY ILIKE 'Month%')
     AND (
       att.MEASURE ILIKE '%consumer price%'
@@ -347,7 +347,7 @@ WITH candidates AS (
   INNER JOIN SNOWFLAKE_PUBLIC_DATA_FREE.CYBERSYN.financial_economic_indicators_attributes att
     ON ts.VARIABLE = att.VARIABLE
   WHERE ts."DATE" BETWEEN '2019-01-01' AND '2024-12-31'
-    AND ts.VALUE BETWEEN 40 AND 500
+    AND ts.VALUE BETWEEN 25 AND 900
     AND (TRIM(att.FREQUENCY) = 'Monthly' OR att.FREQUENCY ILIKE 'Month%')
     AND (
       att.MEASURE ILIKE '%consumer price%'
