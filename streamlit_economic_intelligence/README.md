@@ -2,6 +2,8 @@
 
 Hackathon **AI-02** app: natural language BI over **`ECONOMIC_INDICATORS_WIDE`** (macro) and **`V_COMPANY_RELATIONSHIPS`** (company graph from `SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS`) via Cortex Analyst, plus Cortex COMPLETE, Plotly, and the six innovation features from the spec.
 
+**Step-by-step Streamlit in Snowflake (Option A):** see **`DEPLOY_SIS.md`** in this folder.
+
 ## Prereqs in Snowflake
 
 1. **Marketplace:** install **Snowflake Data: Finance & Economics** so `SNOWFLAKE_PUBLIC_DATA_FREE` is available (macro tables + **`PUBLIC_DATA_FREE.COMPANY_RELATIONSHIPS`**).
