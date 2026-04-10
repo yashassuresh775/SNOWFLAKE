@@ -1945,6 +1945,23 @@ div[data-testid="stDataFrame"] {
     color: var(--dm-sky);
     margin: 0 0 10px 0;
 }
+/* Wireframe-style dashboard title (centered above main grid) */
+.ei-wireframe-dash-title {
+    text-align: center;
+    font-size: clamp(1.15rem, 2.2vw, 1.55rem);
+    font-weight: 800;
+    color: var(--dm-ice);
+    letter-spacing: -0.03em;
+    margin: 4px 0 18px 0;
+}
+.ei-wire-panel-title {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--dm-sky);
+    margin: 0 0 10px 0;
+}
 @media (prefers-reduced-motion: reduce) {
     .ei-bubble-enter { animation: none !important; }
     .ei-flash-once { animation: none !important; }
@@ -2347,7 +2364,12 @@ Plain prose, no bullet points unless Press mode needs a very short second senten
         return ""
 
 
-def render_chart(df: pd.DataFrame, question: str = "") -> None:
+def render_chart(
+    df: pd.DataFrame,
+    question: str = "",
+    *,
+    skip_duplicate_table: bool = False,
+) -> None:
     """Pick line / area / bar / scatter / table from data shape + question hints."""
     if df.empty or "Error" in df.columns:
         return
@@ -2366,7 +2388,10 @@ def render_chart(df: pd.DataFrame, question: str = "") -> None:
     )
     num_cols = _chart_numeric_columns(df)
     if len(df.columns) < 2 or kind == "table":
-        st.dataframe(df, use_container_width=True)
+        if skip_duplicate_table:
+            st.caption("No separate chart for this result shape — use the **Table** above.")
+        else:
+            st.dataframe(df, use_container_width=True)
         return
     if not num_cols:
         st.dataframe(df, use_container_width=True)
@@ -2647,7 +2672,14 @@ def _render_chat_history_page() -> None:
 def _render_dashboard_layout() -> tuple[bool, str]:
     submitted = False
     user_input = ""
-    _left_col, _center_col, _right_col = st.columns([5, 10, 6], gap="medium")
+    st.markdown(
+        '<div class="ei-wireframe-dash-title">US Economic Intelligence · Dashboard</div>',
+        unsafe_allow_html=True,
+    )
+    _left_col, _data_col, _act_col, _conv_col = st.columns(
+        [4.6, 7.4, 1.35, 7.5],
+        gap="medium",
+    )
 
     with _left_col:
         with _glass_panel():
@@ -2701,145 +2733,7 @@ def _render_dashboard_layout() -> tuple[bool, str]:
                     st.session_state.get("persona_perspective") or list(PERSONAS.keys())[0]
                 )
 
-    with _center_col:
-        with _glass_panel():
-            _ws_center = st.session_state.get("ei_workspace") or "Economic analytics"
-            if _ws_center == "Company relationships":
-                _ask_sub = (
-                    'Type below or tap a <strong>company</strong> example on the left — '
-                    "parent → subsidiary questions return <strong>lists or tables</strong>; you can still run macro questions from "
-                    "<strong>More starter prompts</strong>."
-                )
-            else:
-                _ask_sub = (
-                    'Type below or tap a <strong>chart-ready</strong> example on the left — '
-                    "unemployment, CPI, GDP, rates, and multi-metric compares render as <strong>line charts</strong> when the result is a time series."
-                )
-            st.markdown(
-                f'<div class="ei-ask-head">Ask &amp; analyze</div><div class="ei-ask-sub">{_ask_sub}</div>',
-                unsafe_allow_html=True,
-            )
-            with st.form("chat_form", clear_on_submit=True):
-                _qrow1, _qrow2 = st.columns([7, 3], gap="small")
-                with _qrow1:
-                    user_input = st.text_input(
-                        "Your question",
-                        placeholder="Try: monthly CPI 2019–2024 · unemployment vs CPI since 2020 · Treasury bills since 2020…",
-                        label_visibility="collapsed",
-                        key="ei_chat_input",
-                    )
-                with _qrow2:
-                    submitted = st.form_submit_button(
-                        "Run analysis",
-                        use_container_width=True,
-                        type="primary",
-                    )
-
-            st.markdown(
-                '<div id="ei-thread-anchor" class="ei-thread-anchor ei-thread-shell">'
-                '<div class="ei-thread-head">Conversation thread</div>'
-                '<div class="ei-thread-sub">Your question and the analyst reply show up here after each run — '
-                "scroll inside the box if the exchange is long.</div></div>",
-                unsafe_allow_html=True,
-            )
-            thread_container = st.container(height=440)
-            with thread_container:
-                _render_session_chat_bubbles(
-                    empty_hint="Run **Run analysis** above — the conversation appears here.",
-                    bubbles_off_intro="Bubbles hidden (sidebar) — plain lines below:",
-                    dashboard_thread=True,
-                )
-
-            if st.session_state.last_df is not None:
-                st.markdown(
-                    '<div id="ei-results-anchor" class="ei-results-anchor"></div>',
-                    unsafe_allow_html=True,
-                )
-                _ldf = st.session_state.last_df
-                _dc, _vc = _time_series_cols(_ldf)
-                if _dc and _vc:
-                    _ci = _correlation_insight_line(_ldf, _dc, _vc)
-                    if _ci:
-                        with st.expander("Cross-indicator note", expanded=False):
-                            st.markdown(_ci)
-                with st.container(height=220):
-                    render_chart(_ldf, st.session_state.get("last_user_question") or "")
-                if st.session_state.last_followups:
-                    st.markdown(
-                        '<div class="ei-followups-hero">'
-                        '<div class="ei-followups-hero-title">Suggested next questions</div></div>',
-                        unsafe_allow_html=True,
-                    )
-                    _fu_cols = st.columns(2)
-                    for _fi, _fq in enumerate(st.session_state.last_followups):
-                        with _fu_cols[_fi % 2]:
-                            if st.button(_fq, key=f"fu_center_{_fi}", use_container_width=True):
-                                st.session_state.pending_question = _fq
-                                st.rerun()
-                _tbl_col, _tab_col = st.columns([1, 1], gap="small")
-                with _tbl_col:
-                    st.markdown(
-                        '<div class="section-label section-label--tight" style="margin-top:4px">Data</div>',
-                        unsafe_allow_html=True,
-                    )
-                    st.dataframe(_ldf, use_container_width=True, height=220)
-                with _tab_col:
-                    st.markdown(
-                        '<div class="section-label section-label--tight" style="margin-top:4px">Technical</div>',
-                        unsafe_allow_html=True,
-                    )
-                    t_sql, t_dbg, t_fu = st.tabs(["SQL", "Debug", "Follow-ups"])
-                    with t_sql:
-                        if st.session_state.last_sql:
-                            safe_sql = html.escape(st.session_state.last_sql)
-                            st.markdown(f'<div class="sql-box">{safe_sql}</div>', unsafe_allow_html=True)
-                        else:
-                            st.caption("No SQL in this turn.")
-                    with t_dbg:
-                        _dbg = st.session_state.get("last_debug_payload")
-                        if _dbg:
-                            st.code(_dbg, language="json")
-                        else:
-                            st.caption("Run a query to capture the last Analyst response payload.")
-                    with t_fu:
-                        if st.session_state.last_followups:
-                            for _i, _fq in enumerate(st.session_state.last_followups):
-                                if st.button(_fq, key=f"fu_tab_{_i}", use_container_width=True):
-                                    st.session_state.pending_question = _fq
-                                    st.rerun()
-                        else:
-                            st.caption("Follow-ups appear after a successful analysis.")
-                _pdf = build_brief_pdf_bytes(
-                    st.session_state.last_user_question or "US Economic Intelligence — analyst brief",
-                    st.session_state.last_interpretation or "",
-                    st.session_state.last_sql or "",
-                    _ldf,
-                )
-                if _pdf:
-                    st.download_button(
-                        label="Export brief (PDF)",
-                        data=_pdf,
-                        file_name=f"economic_brief_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                        mime="application/pdf",
-                        key="download_brief_pdf",
-                    )
-            else:
-                st.markdown(
-                    """
-    <div class="ei-empty-state ei-empty-state--compact">
-      <div class="ei-empty-icon" aria-hidden="true">📈</div>
-      <div class="ei-empty-title">No analysis yet</div>
-      <div class="ei-empty-copy">
-        Use the question bar or an <strong>Example question</strong> on the left.
-      </div>
-    </div>
-    """,
-                    unsafe_allow_html=True,
-                )
-
-            _consume_dashboard_scroll_if_any()
-
-    with _right_col:
+    with _data_col:
         with _glass_panel():
             _rail_bits: list[str] = [
                 '<div class="ei-rail-identity">',
@@ -2858,28 +2752,173 @@ def _render_dashboard_layout() -> tuple[bool, str]:
             st.markdown("".join(_rail_bits), unsafe_allow_html=True)
             for _warn in st.session_state.get("last_ambiguity_warnings") or []:
                 st.warning(_warn)
-            if st.session_state.last_df is not None and st.session_state.last_interpretation:
+
+            if st.session_state.last_df is not None:
                 st.markdown(
-                    '<div class="section-label section-label--tight">Interpretation</div>',
+                    '<div id="ei-results-anchor" class="ei-results-anchor"></div>',
                     unsafe_allow_html=True,
                 )
-                with st.container(height=172):
-                    _render_narrative_card(st.session_state.last_interpretation, compact=True)
-            elif st.session_state.last_df is not None:
-                st.caption("No narrative this turn — see **Conversation thread**.")
+                _ldf = st.session_state.last_df
+                _dc, _vc = _time_series_cols(_ldf)
+                if _dc and _vc:
+                    _ci = _correlation_insight_line(_ldf, _dc, _vc)
+                    if _ci:
+                        with st.expander("Cross-indicator note", expanded=False):
+                            st.markdown(_ci)
+                st.markdown(
+                    '<div class="ei-wire-panel-title">Table</div>',
+                    unsafe_allow_html=True,
+                )
+                st.dataframe(_ldf, use_container_width=True, height=260)
+                st.markdown(
+                    '<div class="ei-wire-panel-title">Chart</div>',
+                    unsafe_allow_html=True,
+                )
+                with st.container(height=280):
+                    render_chart(
+                        _ldf,
+                        st.session_state.get("last_user_question") or "",
+                        skip_duplicate_table=True,
+                    )
             else:
-                st.caption("Interpretation appears after you run an analysis.")
-            with st.expander(
-                "Suggested follow-ups",
-                expanded=bool(st.session_state.last_followups),
-            ):
-                if st.session_state.last_followups:
-                    for i, fq in enumerate(st.session_state.last_followups):
-                        if st.button(fq, key=f"fu_rail_{i}", use_container_width=True):
-                            st.session_state.pending_question = fq
-                            st.rerun()
-                else:
-                    st.caption("Run a query for ideas.")
+                st.markdown(
+                    """
+    <div class="ei-empty-state ei-empty-state--compact">
+      <div class="ei-empty-icon" aria-hidden="true">📈</div>
+      <div class="ei-empty-title">No analysis yet</div>
+      <div class="ei-empty-copy">
+        Use <strong>Conversation</strong> (question + <strong>Run</strong>) or an example on the left.
+      </div>
+    </div>
+    """,
+                    unsafe_allow_html=True,
+                )
+
+    with _act_col:
+        st.markdown("<br/>", unsafe_allow_html=True)
+        if st.button(
+            "Discard",
+            key="ei_discard_analysis",
+            use_container_width=True,
+            help="Clear table, chart, SQL, and summary for this run. Chat history stays in Conversation.",
+        ):
+            st.session_state.last_df = None
+            st.session_state.last_sql = None
+            st.session_state.last_interpretation = None
+            st.session_state.last_followups = []
+            st.session_state.last_query_class = ""
+            st.session_state.last_query_class_desc = ""
+            st.session_state.last_ambiguity_warnings = []
+            st.session_state.last_debug_payload = None
+            st.session_state.last_user_question = ""
+            st.rerun()
+        st.caption("Clear results")
+        st.markdown(
+            '<p style="text-align:center;margin:1.2rem 0 0.3rem 0;font-size:1.35rem;line-height:1;">↓</p>',
+            unsafe_allow_html=True,
+        )
+        st.caption("Run")
+
+    with _conv_col:
+        with _glass_panel():
+            st.markdown(
+                '<div class="ei-wire-panel-title">Conversation</div>',
+                unsafe_allow_html=True,
+            )
+            _ws_center = st.session_state.get("ei_workspace") or "Economic analytics"
+            if _ws_center == "Company relationships":
+                st.caption(
+                    "Company questions → tables/lists. Examples on the left; **Run** sends your question."
+                )
+            else:
+                st.caption(
+                    "Macro time series → line charts when applicable. **Run** after you type or paste a question."
+                )
+            st.markdown(
+                '<div id="ei-thread-anchor" class="ei-thread-anchor ei-thread-shell">'
+                '<div class="ei-thread-head">Answer · Question</div>'
+                '<div class="ei-thread-sub">Assistant replies and your questions appear here (newest toward the bottom).</div></div>',
+                unsafe_allow_html=True,
+            )
+            thread_container = st.container(height=360)
+            with thread_container:
+                _render_session_chat_bubbles(
+                    empty_hint="Type your **question** below and click **Run**.",
+                    bubbles_off_intro="Bubbles hidden (sidebar) — plain lines below:",
+                    dashboard_thread=True,
+                )
+            with st.form("chat_form", clear_on_submit=True):
+                user_input = st.text_input(
+                    "Your question",
+                    placeholder="e.g. monthly CPI 2019–2024 · Treasury bills since 2020…",
+                    label_visibility="collapsed",
+                    key="ei_chat_input",
+                )
+                submitted = st.form_submit_button(
+                    "Run",
+                    use_container_width=True,
+                    type="primary",
+                )
+
+    st.divider()
+    _bsql, _bsum = st.columns([1, 1], gap="medium")
+    with _bsql:
+        st.markdown(
+            '<div class="ei-wire-panel-title">SQL query</div>',
+            unsafe_allow_html=True,
+        )
+        if st.session_state.last_sql:
+            safe_sql = html.escape(st.session_state.last_sql)
+            st.markdown(f'<div class="sql-box">{safe_sql}</div>', unsafe_allow_html=True)
+        else:
+            st.caption("SQL from Cortex Analyst (or verified fallback) appears here after you run a question.")
+        with st.expander("Debug (Analyst payload)", expanded=False):
+            _dbg = st.session_state.get("last_debug_payload")
+            if _dbg:
+                st.code(_dbg, language="json")
+            else:
+                st.caption("Run a query to capture the last Analyst JSON payload.")
+    with _bsum:
+        st.markdown(
+            '<div class="ei-wire-panel-title">Summary</div>',
+            unsafe_allow_html=True,
+        )
+        if st.session_state.last_df is not None and st.session_state.last_interpretation:
+            _render_narrative_card(st.session_state.last_interpretation, compact=True)
+        elif st.session_state.last_df is not None:
+            st.caption("No Cortex COMPLETE summary this turn — see **Conversation** for the analyst reply.")
+        else:
+            st.caption("Executive summary lands here after a successful run.")
+        if st.session_state.last_followups:
+            st.markdown(
+                '<div class="ei-followups-hero">'
+                '<div class="ei-followups-hero-title">Suggested next questions</div></div>',
+                unsafe_allow_html=True,
+            )
+            _fu_bcols = st.columns(2)
+            for _fi, _fq in enumerate(st.session_state.last_followups):
+                with _fu_bcols[_fi % 2]:
+                    if st.button(_fq, key=f"fu_bottom_{_fi}", use_container_width=True):
+                        st.session_state.pending_question = _fq
+                        st.rerun()
+        _ldf_pdf = st.session_state.last_df
+        if _ldf_pdf is not None:
+            _pdf = build_brief_pdf_bytes(
+                st.session_state.last_user_question or "US Economic Intelligence — analyst brief",
+                st.session_state.last_interpretation or "",
+                st.session_state.last_sql or "",
+                _ldf_pdf,
+            )
+            if _pdf:
+                st.download_button(
+                    label="Export brief (PDF)",
+                    data=_pdf,
+                    file_name=f"economic_brief_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    mime="application/pdf",
+                    key="download_brief_pdf",
+                )
+
+    _consume_dashboard_scroll_if_any()
 
     # ══════════════════════════════════════════════════════════════════════════
     return submitted, user_input
