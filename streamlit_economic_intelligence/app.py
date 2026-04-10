@@ -194,15 +194,36 @@ def _clarifying_question(question: str, reason: str) -> str:
     return _complete_text(prompt) or "Could you specify the indicator and time range you want?"
 
 
-def _generate_narrative(question: str, df: pd.DataFrame) -> str:
-    if df.empty or "Error" in df.columns:
+def generate_narrative(question: str, df: pd.DataFrame) -> str:
+    if df.empty or "Error" in df.columns or session is None:
         return ""
-    summary = df.head(5).to_string(index=False)
-    prompt = (
-        "You are a Bloomberg-style economic analyst. In exactly one or two concise sentences, "
-        f"interpret this data for the question '{question}':\n{summary}"
-    )
-    return _complete_text(prompt)
+    # Format top results for the prompt
+    summary = df.head(8).to_string(index=False)
+    prompt = f"""You are a senior business intelligence analyst presenting findings to an executive.
+
+A user asked: "{question}"
+
+The data shows:
+{summary}
+
+Write 2-3 sentences summarizing the key insight from this data.
+Be specific — mention the top result and actual numbers.
+Start directly with the insight, not with "The data shows" or "Based on the results".
+Plain prose only, no bullet points."""
+
+    try:
+        # Use dollar-quoted string to avoid escaping issues
+        result = session.sql(
+            "SELECT SNOWFLAKE.CORTEX.COMPLETE('"
+            + CORTEX_COMPLETE_MODEL
+            + "', $$"
+            + prompt
+            + "$$) AS narrative"
+        ).collect()[0]["NARRATIVE"]
+        return result.strip() if result else ""
+    except Exception as e:
+        st.sidebar.write(f"Narrative error: {e}")
+        return ""
 
 
 def _headline(df: pd.DataFrame, question: str) -> str:
@@ -550,7 +571,7 @@ if final_question:
             st.session_state.clarifier = clarifier
             st.rerun()
 
-        narrative = _generate_narrative(final_question, df) or interpretation
+        narrative = generate_narrative(final_question, df) or interpretation
         followups = _get_followups(final_question, df)
         low_conf_clarifier = ""
         if confidence < 0.6:
