@@ -90,7 +90,8 @@ AND   att.FREQUENCY       = 'Monthly';
 
 -- ============================================================
 -- V_CPI  (BLS — headline CPI / all-items style, monthly, seasonally adjusted when labeled)
--- Filters are intentionally broad so different marketplace string variants still return rows.
+-- Uses COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME): some listings populate the name only on attributes.
+-- MEASURE may be NULL for CPI rows; NULL ILIKE ... fails, so CPI is also detected from the coalesced name.
 -- ============================================================
 CREATE OR REPLACE VIEW HACKATHON.DATA.V_CPI AS
 SELECT
@@ -98,7 +99,7 @@ SELECT
     ts.DATE,
     ts.VALUE        AS cpi_index,
     ts.UNIT,
-    ts.VARIABLE_NAME,
+    COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) AS VARIABLE_NAME,
     att.FREQUENCY
 FROM SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_timeseries ts
 JOIN SNOWFLAKE_PUBLIC_DATA_FREE.PUBLIC_DATA_FREE.financial_economic_indicators_attributes att
@@ -108,26 +109,51 @@ WHERE (
         OR att.RELEASE_SOURCE ILIKE '%BLS%'
         OR TRIM(att.RELEASE_SOURCE) = 'Bureau of Labor Statistics'
       )
-  AND att.FREQUENCY = 'Monthly'
+  AND (
+        TRIM(att.FREQUENCY) = 'Monthly'
+        OR att.FREQUENCY ILIKE 'Month%'
+      )
   AND (
         TRIM(att.SEASONALLY_ADJUSTED) = 'Seasonally adjusted'
         OR att.SEASONALLY_ADJUSTED ILIKE 'Seasonally adjusted%'
+        OR att.SEASONALLY_ADJUSTED ILIKE '%Seasonally adjusted%'
+        OR UPPER(TRIM(COALESCE(att.SEASONALLY_ADJUSTED, ''))) IN ('TRUE', 'YES', '1')
+        OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%seasonally adjust%'
       )
   AND (
         att.MEASURE ILIKE '%consumer%price%'
         OR att.MEASURE ILIKE '%CPI%'
+        OR att.MEASURE ILIKE '%price index%'
         OR TRIM(att.MEASURE) = 'Consumer Price Index'
         OR TRIM(att.MEASURE) ILIKE 'Consumer Price Index%'
+        OR (
+            TRIM(COALESCE(att.MEASURE, '')) ILIKE 'index'
+            AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%CPI%'
+        )
+        OR (
+            NULLIF(TRIM(COALESCE(att.MEASURE, '')), '') IS NULL
+            AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%CPI%'
+            AND (
+                COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%all items%'
+                OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%all urban%'
+                OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%U.S. city average%'
+                OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%city average%'
+            )
+        )
       )
   AND (
-        ts.VARIABLE_NAME ILIKE '%all items%'
-        OR ts.VARIABLE_NAME ILIKE '%all urban%'
-        OR ts.VARIABLE_NAME ILIKE '%cpi-u%'
-        OR ts.VARIABLE_NAME ILIKE '%consumer price index%'
+        COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%all items%'
+        OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%all urban%'
+        OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%cpi-u%'
+        OR COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%consumer price index%'
+        OR (
+            COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%CPI%'
+            AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) ILIKE '%U.S. city average%'
+        )
       )
-  AND ts.VARIABLE_NAME NOT ILIKE '%less food and energy%'
-  AND ts.VARIABLE_NAME NOT ILIKE '%except food%'
-  AND ts.VARIABLE_NAME NOT ILIKE '%core%';
+  AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) NOT ILIKE '%less food and energy%'
+  AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) NOT ILIKE '%except food%'
+  AND COALESCE(ts.VARIABLE_NAME, att.VARIABLE_NAME) NOT ILIKE '%core%';
 
 -- ============================================================
 -- V_GDP  (BEA — GDP level series, quarterly preferred; broad MEASURE / VARIABLE_NAME match)
