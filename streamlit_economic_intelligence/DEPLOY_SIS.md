@@ -48,18 +48,23 @@ SELECT COUNT(*) FROM HACKATHON.DATA.V_UNEMPLOYMENT;
    `streamlit_economic_intelligence/app.py`  
    (copy from Cursor, paste into Snowsight).
 
-## 4. Python packages
+## 4. Python packages (required — or imports fail)
 
-In the Streamlit app settings, add **Packages** / **requirements** from this repo’s  
-`streamlit_economic_intelligence/requirements.txt`:
+Streamlit in Snowflake **does not** ship with Plotly. If you see a crash on **`import plotly.express as px`** (or `ModuleNotFoundError: No module named 'plotly'`), the app’s **Packages** are missing or not saved.
 
-- `streamlit>=1.31.0`
-- `pandas>=2.0.0`
-- `plotly>=5.18.0`
-- `requests>=2.31.0`
-- `snowflake-snowpark-python>=1.11.0`
+In the app **Settings** / **Packages** (wording varies), add **every** dependency, one per line, for example:
 
-Save. If the UI has a single text box, paste the lines above.
+```
+streamlit>=1.31.0
+pandas>=2.0.0
+plotly>=5.18.0
+requests>=2.31.0
+snowflake-snowpark-python>=1.11.0
+```
+
+(Same as `requirements.txt` in this folder.)
+
+**Save**, then **Run** again. `streamlit` / `pandas` / `snowpark` may already be provided by the runtime — **`plotly` is usually the one you must add explicitly.**
 
 ## 5. Optional environment variables
 
