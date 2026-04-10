@@ -60,6 +60,49 @@ GROUP BY "DATE"
 ORDER BY "DATE"
 """.strip()
 
+SQL_FALLBACK_KROGER_SUBSIDIARIES = """
+SELECT RELATED_COMPANY_NAME AS subsidiary
+FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
+WHERE COMPANY_NAME = 'KROGER CO'
+ORDER BY RELATED_COMPANY_NAME
+""".strip()
+
+SQL_FALLBACK_MARRIOTT_SUBSIDIARIES = """
+SELECT RELATED_COMPANY_NAME AS subsidiary
+FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
+WHERE COMPANY_NAME = 'MARRIOTT INTERNATIONAL INC /MD/'
+ORDER BY RELATED_COMPANY_NAME
+""".strip()
+
+SQL_FALLBACK_RETAIL_BEFORE_AFTER_HIKES_2022 = """
+WITH monthly_sales AS (
+  SELECT
+    DATE_TRUNC('month', "DATE") AS month,
+    SUM(RETAIL_SALES) AS total_sales
+  FROM HACKATHON.DATA.V_RETAIL_SALES
+  WHERE UNIT = 'USD'
+    AND "DATE" BETWEEN '2019-01-01' AND '2024-12-31'
+  GROUP BY 1
+),
+growth AS (
+  SELECT
+    month,
+    total_sales,
+    100 * (total_sales - LAG(total_sales) OVER (ORDER BY month))
+      / NULLIF(LAG(total_sales) OVER (ORDER BY month), 0) AS mom_growth_pct
+  FROM monthly_sales
+)
+SELECT
+  CASE WHEN month < '2022-03-01' THEN 'before_hikes' ELSE 'after_hikes' END AS period,
+  ROUND(AVG(mom_growth_pct), 2) AS avg_mom_growth_pct,
+  ROUND(AVG(total_sales), 2) AS avg_monthly_sales,
+  COUNT(*) AS months
+FROM growth
+WHERE mom_growth_pct IS NOT NULL
+GROUP BY 1
+ORDER BY 1
+""".strip()
+
 
 def _wants_subsidiary_leaderboard(q: str) -> bool:
     t = q.lower()
@@ -72,10 +115,22 @@ def _fallback_sql_for_question(q: str) -> str | None:
     t = q.lower()
     if _wants_subsidiary_leaderboard(t):
         return SQL_FALLBACK_MOST_SUBSIDIARIES
+    if "subsidiar" in t and "kroger" in t:
+        return SQL_FALLBACK_KROGER_SUBSIDIARIES
+    if "subsidiar" in t and "marriott" in t:
+        return SQL_FALLBACK_MARRIOTT_SUBSIDIARIES
     if "retail" in t and ("top" in t or "category" in t) and "2023" in t:
         return SQL_FALLBACK_TOP_RETAIL_2023
     if ("aerospace" in t or "aircraft" in t) and ("industrial production" in t or "production" in t):
         return SQL_FALLBACK_AEROSPACE_2019_2023
+    if (
+        "retail" in t
+        and ("growth" in t or "compare" in t)
+        and ("before" in t and "after" in t)
+        and ("interest" in t or "rate" in t)
+        and "2022" in t
+    ):
+        return SQL_FALLBACK_RETAIL_BEFORE_AFTER_HIKES_2022
     return None
 
 
