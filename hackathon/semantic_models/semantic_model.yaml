@@ -557,7 +557,8 @@ tables:
           - subsidiaries
 
 verified_queries:
-  - question: "What was the peak unemployment rate during COVID?"
+  - name: vq_peak_unemployment_covid
+    question: "What was the peak unemployment rate during COVID?"
     sql: |
       SELECT MAX(UNEMPLOYMENT_RATE) AS peak_unemployment_pct
       FROM HACKATHON.DATA.V_UNEMPLOYMENT
@@ -567,7 +568,8 @@ verified_queries:
         AND VARIABLE_NAME NOT LIKE '%, Men%'
         AND VARIABLE_NAME NOT LIKE '%, Women%'
 
-  - question: "When did inflation peak in 2022?"
+  - name: vq_cpi_peak_month_2022
+    question: "When did inflation peak in 2022?"
     sql: |
       SELECT "DATE" AS peak_month, CPI_INDEX AS peak_cpi_index
       FROM HACKATHON.DATA.V_CPI
@@ -575,7 +577,8 @@ verified_queries:
       ORDER BY CPI_INDEX DESC NULLS LAST
       LIMIT 1
 
-  - question: "Show the Fed rate hike cycle from 2022 through 2024."
+  - name: vq_fed_rate_hike_cycle_2022_2024
+    question: "Show the Fed rate hike cycle from 2022 through 2024."
     sql: |
       SELECT "DATE", AVG(INTEREST_RATE) AS avg_rate
       FROM HACKATHON.DATA.V_INTEREST_RATES
@@ -585,7 +588,8 @@ verified_queries:
       GROUP BY "DATE"
       ORDER BY "DATE"
 
-  - question: "What is the US unemployment rate trend from 2020 to 2024?"
+  - name: vq_us_unemployment_trend_2020_2024
+    question: "What is the US unemployment rate trend from 2020 to 2024?"
     sql: |
       SELECT "DATE", AVG(UNEMPLOYMENT_RATE) AS unemployment_rate
       FROM HACKATHON.DATA.V_UNEMPLOYMENT
@@ -597,7 +601,8 @@ verified_queries:
       GROUP BY "DATE"
       ORDER BY "DATE"
 
-  - question: "How did unemployment differ between men and women in 2022?"
+  - name: vq_unemployment_by_gender_2022
+    question: "How did unemployment differ between men and women in 2022?"
     sql: |
       SELECT
         "DATE",
@@ -609,7 +614,8 @@ verified_queries:
       GROUP BY "DATE"
       ORDER BY "DATE"
 
-  - question: "What are the top retail sales categories by total value in 2023?"
+  - name: vq_top_retail_categories_2023
+    question: "What are the top retail sales categories by total value in 2023?"
     sql: |
       SELECT VARIABLE_NAME AS category, SUM(RETAIL_SALES) AS total_sales
       FROM HACKATHON.DATA.V_RETAIL_SALES
@@ -619,7 +625,8 @@ verified_queries:
       ORDER BY total_sales DESC
       LIMIT 10
 
-  - question: "How did auto retail sales trend from 2019 to 2023?"
+  - name: vq_auto_retail_sales_trend_2019_2023
+    question: "How did auto retail sales trend from 2019 to 2023?"
     sql: |
       SELECT "DATE", SUM(RETAIL_SALES) AS auto_sales
       FROM HACKATHON.DATA.V_RETAIL_SALES
@@ -629,7 +636,8 @@ verified_queries:
       GROUP BY "DATE"
       ORDER BY "DATE"
 
-  - question: "How have Treasury bill rates changed since 2020?"
+  - name: vq_treasury_bill_rates_since_2020
+    question: "How have Treasury bill rates changed since 2020?"
     sql: |
       SELECT "DATE", AVG(INTEREST_RATE) AS avg_rate, VARIABLE_NAME AS rate_type
       FROM HACKATHON.DATA.V_INTEREST_RATES
@@ -639,7 +647,8 @@ verified_queries:
       GROUP BY "DATE", VARIABLE_NAME
       ORDER BY "DATE"
 
-  - question: "What were interest rates doing during 2022 and 2023?"
+  - name: vq_interest_rates_2022_2023
+    question: "What were interest rates doing during 2022 and 2023?"
     sql: |
       SELECT "DATE", AVG(INTEREST_RATE) AS avg_rate
       FROM HACKATHON.DATA.V_INTEREST_RATES
@@ -649,7 +658,8 @@ verified_queries:
       GROUP BY "DATE"
       ORDER BY "DATE"
 
-  - question: "Which industrial sectors had the highest production in 2023?"
+  - name: vq_top_industrial_sectors_2023
+    question: "Which industrial sectors had the highest production in 2023?"
     sql: |
       SELECT VARIABLE_NAME AS sector, AVG(PRODUCTION_INDEX) AS avg_production_index
       FROM HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION
@@ -658,7 +668,8 @@ verified_queries:
       ORDER BY avg_production_index DESC
       LIMIT 10
 
-  - question: "How did aerospace production change from 2019 to 2023?"
+  - name: vq_aerospace_production_2019_2023
+    question: "How did aerospace production change from 2019 to 2023?"
     sql: |
       SELECT "DATE", AVG(PRODUCTION_INDEX) AS production_index
       FROM HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION
@@ -667,7 +678,8 @@ verified_queries:
       GROUP BY "DATE"
       ORDER BY "DATE"
 
-  - question: "How did aerospace industrial production trend from 2019 to 2023?"
+  - name: vq_aerospace_industrial_trend_2019_2023
+    question: "How did aerospace industrial production trend from 2019 to 2023?"
     sql: |
       SELECT "DATE", AVG(PRODUCTION_INDEX) AS production_index
       FROM HACKATHON.DATA.V_INDUSTRIAL_PRODUCTION
@@ -676,7 +688,8 @@ verified_queries:
       GROUP BY "DATE"
       ORDER BY "DATE"
 
-  - question: "Which company owns the most subsidiaries?"
+  - name: vq_company_most_subsidiaries
+    question: "Which company owns the most subsidiaries?"
     sql: |
       SELECT COMPANY_NAME AS parent_company,
              COUNT(RELATED_COMPANY_NAME) AS subsidiary_count
@@ -685,21 +698,24 @@ verified_queries:
       ORDER BY subsidiary_count DESC
       LIMIT 15
 
-  - question: "What subsidiaries does Kroger own?"
+  - name: vq_kroger_subsidiaries
+    question: "What subsidiaries does Kroger own?"
     sql: |
       SELECT RELATED_COMPANY_NAME AS subsidiary
       FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
       WHERE COMPANY_NAME = 'KROGER CO'
       ORDER BY RELATED_COMPANY_NAME
 
-  - question: "What subsidiaries does Marriott own?"
+  - name: vq_marriott_subsidiaries
+    question: "What subsidiaries does Marriott own?"
     sql: |
       SELECT RELATED_COMPANY_NAME AS subsidiary
       FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
       WHERE COMPANY_NAME = 'MARRIOTT INTERNATIONAL INC /MD/'
       ORDER BY RELATED_COMPANY_NAME
 
-  - question: "Which retail companies have the most subsidiaries?"
+  - name: vq_retail_companies_subsidiary_counts
+    question: "Which retail companies have the most subsidiaries?"
     sql: |
       SELECT COMPANY_NAME AS parent_company,
              COUNT(RELATED_COMPANY_NAME) AS subsidiary_count
@@ -713,7 +729,8 @@ verified_queries:
       GROUP BY COMPANY_NAME
       ORDER BY subsidiary_count DESC
 
-  - question: "Which companies have more than 5 subsidiaries?"
+  - name: vq_companies_gt5_subsidiaries
+    question: "Which companies have more than 5 subsidiaries?"
     sql: |
       SELECT COMPANY_NAME AS parent_company,
              COUNT(RELATED_COMPANY_NAME) AS subsidiary_count
@@ -722,7 +739,8 @@ verified_queries:
       HAVING COUNT(RELATED_COMPANY_NAME) > 5
       ORDER BY subsidiary_count DESC
 
-  - question: "What are the biggest retail sectors in 2023?"
+  - name: vq_biggest_retail_sectors_2023
+    question: "What are the biggest retail sectors in 2023?"
     sql: |
       SELECT VARIABLE_NAME AS category, SUM(RETAIL_SALES) AS total_sales
       FROM HACKATHON.DATA.V_RETAIL_SALES
@@ -732,7 +750,8 @@ verified_queries:
       ORDER BY total_sales DESC
       LIMIT 10
 
-  - question: "Compare retail sales growth before and after interest rates hikes in 2022."
+  - name: vq_retail_mom_growth_before_after_hikes_2022
+    question: "Compare retail sales growth before and after interest rates hikes in 2022."
     sql: |
       WITH monthly_sales AS (
         SELECT DATE_TRUNC('month', "DATE") AS month, SUM(RETAIL_SALES) AS total_sales
@@ -759,7 +778,8 @@ verified_queries:
       GROUP BY 1
       ORDER BY 1
 
-  - question: "Compare unemployment and industrial production over time since 2020."
+  - name: vq_macro_wide_unemployment_industrial_production_2020
+    question: "Compare unemployment and industrial production over time since 2020."
     sql: |
       SELECT
         OBSERVATION_DATE,
@@ -769,7 +789,8 @@ verified_queries:
       WHERE OBSERVATION_DATE >= '2020-01-01'
       ORDER BY OBSERVATION_DATE
 
-  - question: "Compare unemployment and CPI on the same monthly timeline since 2020."
+  - name: vq_macro_wide_unemployment_cpi_2020
+    question: "Compare unemployment and CPI on the same monthly timeline since 2020."
     sql: |
       SELECT
         OBSERVATION_DATE,
@@ -779,14 +800,27 @@ verified_queries:
       WHERE OBSERVATION_DATE >= '2020-01-01'
       ORDER BY OBSERVATION_DATE
 
-  - question: "Show monthly headline CPI index from 2019 through 2024."
+  - name: vq_macro_wide_unemployment_retail_sales_2020
+    question: "Compare unemployment trend and total retail sales (USD) since 2020."
+    sql: |
+      SELECT
+        OBSERVATION_DATE,
+        UNEMPLOYMENT_RATE,
+        RETAIL_SALES
+      FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+      WHERE OBSERVATION_DATE >= '2020-01-01'
+      ORDER BY OBSERVATION_DATE
+
+  - name: vq_monthly_headline_cpi_2019_2024
+    question: "Show monthly headline CPI index from 2019 through 2024."
     sql: |
       SELECT "DATE", CPI_INDEX, VARIABLE_NAME
       FROM HACKATHON.DATA.V_CPI
       WHERE "DATE" BETWEEN '2019-01-01' AND '2024-12-31'
       ORDER BY "DATE"
 
-  - question: "What was the peak year-over-year headline CPI inflation rate in 2022?"
+  - name: vq_peak_yoy_cpi_inflation_2022
+    question: "What was the peak year-over-year headline CPI inflation rate in 2022?"
     sql: |
       WITH m AS (
         SELECT
@@ -801,14 +835,16 @@ verified_queries:
       WHERE YEAR("DATE") = 2022
         AND cpi_prior_year IS NOT NULL
 
-  - question: "Show US real GDP by quarter for the last five years."
+  - name: vq_us_real_gdp_quarterly_last_5_years
+    question: "Show US real GDP by quarter for the last five years."
     sql: |
       SELECT "DATE", GDP_VALUE, UNIT, VARIABLE_NAME, FREQUENCY
       FROM HACKATHON.DATA.V_GDP
       WHERE "DATE" >= DATEADD(year, -5, CURRENT_DATE())
       ORDER BY "DATE"
 
-  - question: "Compare average month-over-month retail sales growth before and after the 2022 Fed hike cycle, and include the number of months in each period."
+  - name: vq_retail_mom_growth_before_after_hikes_with_month_counts
+    question: "Compare average month-over-month retail sales growth before and after the 2022 Fed hike cycle, and include the number of months in each period."
     sql: |
       WITH monthly_sales AS (
         SELECT DATE_TRUNC('month', "DATE") AS month, SUM(RETAIL_SALES) AS total_sales

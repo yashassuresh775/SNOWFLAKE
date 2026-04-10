@@ -223,6 +223,13 @@ WHERE OBSERVATION_DATE >= '2020-01-01'
 ORDER BY OBSERVATION_DATE
 """.strip()
 
+SQL_FALLBACK_MACRO_UNEMPLOYMENT_RETAIL_2020 = """
+SELECT OBSERVATION_DATE, UNEMPLOYMENT_RATE, RETAIL_SALES
+FROM HACKATHON.DATA.ECONOMIC_INDICATORS_WIDE
+WHERE OBSERVATION_DATE >= '2020-01-01'
+ORDER BY OBSERVATION_DATE
+""".strip()
+
 
 def _normalize_question(q: str) -> str:
     t = q.lower().strip()
@@ -313,7 +320,13 @@ def _fallback_sql_for_question(q: str) -> str | None:
         if _has_any(t, ("quarter", "last 5", "five year", "5 year", "trend", "show")):
             return SQL_FALLBACK_GDP_QUARTERLY_5Y
 
-    # Macro wide — same timeline comparisons
+    # Macro wide — same timeline comparisons (retail before CPI so “unemployment + retail” is unambiguous)
+    if (
+        "unemployment" in t
+        and "retail" in t
+        and _has_any(t, ("2020", "since", "compare", "trend", "timeline", "over time", "sales", "total"))
+    ):
+        return SQL_FALLBACK_MACRO_UNEMPLOYMENT_RETAIL_2020
     if "unemployment" in t and _has_any(t, ("cpi", "consumer price", "inflation")) and _has_any(t, ("2020", "since", "compare", "same")):
         return SQL_FALLBACK_MACRO_UNEMPLOYMENT_CPI_2020
     if "unemployment" in t and _has_any(t, ("industrial production", "production")) and _has_any(t, ("2020", "since", "compare")):
