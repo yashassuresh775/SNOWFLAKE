@@ -15,6 +15,11 @@ custom_instructions: |
   Physical value columns are unemployment_rate, retail_sales, interest_rate, production_index, not VALUE.
   Round outputs to 2 decimal places unless the user asks otherwise.
   For company_relationships, names may appear in ALL CAPS; parent/subsidiary questions use company_relationships.
+  Company SQL rules: Query HACKATHON.DATA.V_COMPANY_RELATIONSHIPS in one level when possible. The view exposes COMPANY_NAME (parent)
+  and RELATED_COMPANY_NAME (subsidiary) on every row. Do NOT define a CTE or subquery that SELECTs only subsidiary columns and then
+  GROUP BY COMPANY_NAME in the outer query — COMPANY_NAME must appear in the same scope as the COUNT. For "most subsidiaries" use:
+  SELECT COMPANY_NAME, COUNT(RELATED_COMPANY_NAME) AS subsidiary_count FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
+  GROUP BY COMPANY_NAME ORDER BY subsidiary_count DESC LIMIT 15.
   Industrial production: phrases like industrial production, manufacturing output, factory output, sector production, or named sectors
   (aerospace, aircraft, auto, motor vehicles, chemicals, computers, etc.) map to industrial_production. The Fed series title is in
   VARIABLE_NAME; filter with VARIABLE_NAME ILIKE '%keyword%' using the user words and close synonyms (e.g. aerospace OR aircraft OR aviation).
@@ -264,9 +269,10 @@ tables:
 
   - name: company_relationships
     description: >
-      Corporate ownership relationships showing parent companies and their subsidiaries.
-      View V_COMPANY_RELATIONSHIPS keeps parent-direction rows only.
-      Covers 291 parent companies and 394 subsidiaries. Names appear in ALL CAPS.
+      Corporate ownership: each row is one parent-to-subsidiary edge. Columns include COMPANY_NAME (parent), RELATED_COMPANY_NAME
+      (subsidiary), COMPANY_ID, RELATED_COMPANY_ID. For counts per parent, group by COMPANY_NAME and count RELATED_COMPANY_NAME or
+      COUNT(*). Do not project only RELATED_COMPANY_NAME in an inner query then reference COMPANY_NAME outside — invalid SQL.
+      View keeps parent-direction rows only. Names often ALL CAPS.
     base_table:
       database: HACKATHON
       schema: DATA

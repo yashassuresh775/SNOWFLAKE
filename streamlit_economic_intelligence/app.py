@@ -31,6 +31,24 @@ SEMANTIC_MODEL_FILE = os.environ.get(
 CORTEX_COMPLETE_MODEL = os.environ.get("CORTEX_COMPLETE_MODEL", "mistral-large2")
 CORTEX_ANALYST_PATH = "/api/v2/cortex/analyst/message"
 
+# Verified SQL when Analyst returns a broken CTE (parent column dropped from scope).
+SQL_FALLBACK_MOST_SUBSIDIARIES = """
+SELECT COMPANY_NAME AS parent_company,
+       COUNT(RELATED_COMPANY_NAME) AS subsidiary_count
+FROM HACKATHON.DATA.V_COMPANY_RELATIONSHIPS
+GROUP BY COMPANY_NAME
+ORDER BY subsidiary_count DESC
+LIMIT 15
+""".strip()
+
+
+def _wants_subsidiary_leaderboard(q: str) -> bool:
+    t = q.lower()
+    if "subsidiar" not in t:
+        return False
+    return any(k in t for k in ("most", "top", "largest", "many", "number", "count", "biggest"))
+
+
 # ── page ──────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="US Economic Intelligence",
@@ -369,6 +387,12 @@ if question:
 
                 if sql:
                     df = run_sql(sql)
+                    if "Error" in df.columns and _wants_subsidiary_leaderboard(question):
+                        df = run_sql(SQL_FALLBACK_MOST_SUBSIDIARIES)
+                        sql = (
+                            SQL_FALLBACK_MOST_SUBSIDIARIES
+                            + "\n\n-- Note: Cortex Analyst SQL failed; ran verified subsidiary leaderboard query."
+                        )
                     st.session_state.last_sql = sql
                     st.session_state.last_df = df
                     narrative = generate_narrative(question, df)
