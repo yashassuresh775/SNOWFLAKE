@@ -29,6 +29,9 @@ custom_instructions: |
   Interest-rate comparison windows in 2022-2023 should use interest_rates and monthly Treasury bill rows when instrument is unspecified.
   Subsidiary listing questions ("what subsidiaries does X own?") should query company_relationships with COMPANY_NAME filter and
   return RELATED_COMPANY_NAME values ordered alphabetically.
+  For macro causal phrasing like "before and after 2022 Fed hike cycle", you may use a time-split proxy on DATE without joining tables:
+  split at 2022-03-01 (first major 2022 Fed hike period), compute month-over-month retail growth from V_RETAIL_SALES (UNIT='USD'),
+  then aggregate by period and include both average growth and number of months.
 
 tables:
   - name: unemployment
@@ -490,6 +493,33 @@ verified_queries:
       LIMIT 10
 
   - question: "Compare retail sales growth before and after interest rates hikes in 2022."
+    sql: |
+      WITH monthly_sales AS (
+        SELECT DATE_TRUNC('month', "DATE") AS month, SUM(RETAIL_SALES) AS total_sales
+        FROM HACKATHON.DATA.V_RETAIL_SALES
+        WHERE UNIT = 'USD'
+          AND "DATE" BETWEEN '2019-01-01' AND '2024-12-31'
+        GROUP BY 1
+      ),
+      growth AS (
+        SELECT
+          month,
+          total_sales,
+          100 * (total_sales - LAG(total_sales) OVER (ORDER BY month))
+            / NULLIF(LAG(total_sales) OVER (ORDER BY month), 0) AS mom_growth_pct
+        FROM monthly_sales
+      )
+      SELECT
+        CASE WHEN month < '2022-03-01' THEN 'before_hikes' ELSE 'after_hikes' END AS period,
+        ROUND(AVG(mom_growth_pct), 2) AS avg_mom_growth_pct,
+        ROUND(AVG(total_sales), 2) AS avg_monthly_sales,
+        COUNT(*) AS months
+      FROM growth
+      WHERE mom_growth_pct IS NOT NULL
+      GROUP BY 1
+      ORDER BY 1
+
+  - question: "Compare average month-over-month retail sales growth before and after the 2022 Fed hike cycle, and include the number of months in each period."
     sql: |
       WITH monthly_sales AS (
         SELECT DATE_TRUNC('month', "DATE") AS month, SUM(RETAIL_SALES) AS total_sales
