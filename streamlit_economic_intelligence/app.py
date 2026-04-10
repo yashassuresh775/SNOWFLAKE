@@ -6,6 +6,7 @@ Cortex Analyst (semantic YAML) + Cortex COMPLETE narratives. No Plotly (native S
 from __future__ import annotations
 
 import html
+import difflib
 import json
 import os
 import re
@@ -249,6 +250,106 @@ def _fallback_sql_for_question(q: str) -> str | None:
     return None
 
 
+SPELLING_MAP = {
+    "subsidaries": "subsidiaries",
+    "subsdiaries": "subsidiaries",
+    "subsidiery": "subsidiary",
+    "unemploment": "unemployment",
+    "unemployement": "unemployment",
+    "interst": "interest",
+    "retial": "retail",
+    "aeropsace": "aerospace",
+    "industrail": "industrial",
+    "treasurry": "treasury",
+}
+
+DOMAIN_TERMS = [
+    "unemployment",
+    "retail",
+    "sales",
+    "interest",
+    "rates",
+    "treasury",
+    "industrial",
+    "production",
+    "aerospace",
+    "aircraft",
+    "subsidiaries",
+    "company",
+    "kroger",
+    "marriott",
+]
+
+
+def _autocorrect_question(question: str) -> str:
+    parts = question.split()
+    out: list[str] = []
+    for token in parts:
+        bare = re.sub(r"[^A-Za-z]", "", token).lower()
+        prefix = token[: len(token) - len(token.lstrip("([{\"'"))]
+        suffix = token[len(token.rstrip(")]}\"'.,!?;:")) :]
+        core = token[len(prefix) : len(token) - len(suffix) if len(suffix) > 0 else len(token)]
+
+        corrected_core = core
+        lower_core = re.sub(r"[^A-Za-z]", "", core).lower()
+        if lower_core in SPELLING_MAP:
+            corrected_core = SPELLING_MAP[lower_core]
+        elif lower_core and len(lower_core) >= 5:
+            match = difflib.get_close_matches(lower_core, DOMAIN_TERMS, n=1, cutoff=0.86)
+            if match:
+                corrected_core = match[0]
+
+        if core.istitle():
+            corrected_core = corrected_core.title()
+        out.append(f"{prefix}{corrected_core}{suffix}")
+    return " ".join(out)
+
+
+def _result_digest(df: pd.DataFrame) -> str:
+    if df is None or df.empty or "Error" in df.columns:
+        return ""
+    cols = df.columns.tolist()
+    numeric_cols = list(df.select_dtypes(include="number").columns)
+    bits = [f"Rows: {len(df)}", f"Columns: {len(cols)}"]
+    if numeric_cols:
+        c = numeric_cols[0]
+        try:
+            bits.append(f"{c}: min {df[c].min():,.2f}, max {df[c].max():,.2f}")
+        except Exception:  # noqa: BLE001
+            pass
+    head_preview = df.head(3).to_string(index=False)
+    return " | ".join(bits) + "\n\nTop rows:\n" + head_preview
+
+
+def generate_followups(question: str, df: pd.DataFrame) -> list[str]:
+    if session is None or df is None or df.empty or "Error" in df.columns:
+        return []
+    preview = df.head(4).to_string(index=False)
+    prompt = f"""Given this user question and result:
+Question: {question}
+Result sample:
+{preview}
+
+Suggest exactly 3 concise follow-up questions the user may ask next.
+Return only JSON array of strings."""
+    try:
+        raw = session.sql(
+            "SELECT SNOWFLAKE.CORTEX.COMPLETE('"
+            + CORTEX_COMPLETE_MODEL
+            + "', $$"
+            + prompt
+            + "$$) AS followups"
+        ).collect()[0]["FOLLOWUPS"]
+        if not raw:
+            return []
+        parsed = json.loads(str(raw).strip())
+        if isinstance(parsed, list):
+            return [str(x).strip() for x in parsed if str(x).strip()][:3]
+    except Exception:  # noqa: BLE001
+        return []
+    return []
+
+
 # ── page ──────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="US Economic Intelligence",
@@ -445,6 +546,8 @@ if "last_interpretation" not in st.session_state:
     st.session_state.last_interpretation = None
 if "pending_question" not in st.session_state:
     st.session_state.pending_question = None
+if "last_followups" not in st.session_state:
+    st.session_state.last_followups = []
 
 # ══════════════════════════════════════════════════════════════════════════
 #  LAYOUT
@@ -518,6 +621,17 @@ with left:
                 st.session_state.pending_question = q
                 st.rerun()
 
+    if st.session_state.last_followups:
+        st.markdown(
+            '<div class="section-label" style="margin-top:12px">Follow-up questions</div>',
+            unsafe_allow_html=True,
+        )
+        fcols = st.columns(1)
+        for i, fq in enumerate(st.session_state.last_followups):
+            if fcols[0].button(fq, key=f"fu_{i}", use_container_width=True):
+                st.session_state.pending_question = fq
+                st.rerun()
+
 with right:
     st.markdown(
         '<div class="section-label">Results</div>',
@@ -568,12 +682,13 @@ elif submitted and user_input and user_input.strip():
     question = user_input.strip()
 
 if question:
+    question_for_model = _autocorrect_question(question)
     st.session_state.messages.append({"role": "user", "content": question})
 
     with st.spinner("Thinking..."):
         try:
             response = call_cortex_analyst(
-                question,
+                question_for_model,
                 st.session_state.messages[:-1],
             )
 
@@ -585,6 +700,7 @@ if question:
                 st.session_state.last_df = None
                 st.session_state.last_sql = None
                 st.session_state.last_interpretation = None
+                st.session_state.last_followups = []
             else:
                 sql = None
                 interpretation = None
@@ -603,18 +719,22 @@ if question:
                             sql = fallback_sql + "\n\n-- Note: Cortex Analyst SQL failed; ran verified fallback query."
                     st.session_state.last_sql = sql
                     st.session_state.last_df = df
-                    narrative = generate_narrative(question, df)
+                    narrative = generate_narrative(question_for_model, df)
+                    digest = _result_digest(df)
                     if narrative:
                         st.session_state.last_interpretation = narrative
                     elif interpretation:
                         st.session_state.last_interpretation = interpretation
                     else:
                         st.session_state.last_interpretation = None
+                    st.session_state.last_followups = generate_followups(question_for_model, df)
                     reply = (
                         narrative
                         or interpretation
                         or "Here are the results — see the chart and data."
                     )
+                    if digest:
+                        reply = f"{reply}\n\n{digest}"
                     st.session_state.messages.append(
                         {"role": "assistant", "content": reply}
                     )
@@ -628,9 +748,14 @@ if question:
                         )
                         st.session_state.last_df = df
                         narrative = generate_narrative(question, df)
+                        digest = _result_digest(df)
                         st.session_state.last_interpretation = narrative or interpretation
+                        st.session_state.last_followups = generate_followups(question_for_model, df)
+                        fallback_msg = st.session_state.last_interpretation or "Here are the fallback results."
+                        if digest:
+                            fallback_msg = f"{fallback_msg}\n\n{digest}"
                         st.session_state.messages.append(
-                            {"role": "assistant", "content": st.session_state.last_interpretation or "Here are the fallback results."}
+                            {"role": "assistant", "content": fallback_msg}
                         )
                     else:
                         msg = (
@@ -641,9 +766,11 @@ if question:
                         st.session_state.last_df = None
                         st.session_state.last_sql = None
                         st.session_state.last_interpretation = None
+                        st.session_state.last_followups = []
         except Exception as e:  # noqa: BLE001
             st.session_state.messages.append(
                 {"role": "assistant", "content": f"Error: {e}"}
             )
+            st.session_state.last_followups = []
 
     st.rerun()
